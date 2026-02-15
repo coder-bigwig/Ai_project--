@@ -1,0 +1,127 @@
+﻿FROM jupyter/scipy-notebook:latest
+
+USER root
+
+# Base tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+# Teaching extensions
+RUN pip install --no-cache-dir \
+    jupyterlab-language-pack-zh-CN \
+    nbgrader \
+    jupyterlab_execute_time
+
+# AI assistant dependencies
+RUN pip install --no-cache-dir \
+    openai \
+    langchain \
+    requests
+
+# CV/DL dependencies (CPU)
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch \
+    torchvision \
+    torchaudio
+
+RUN pip install --no-cache-dir \
+    numpy==1.24.4 \
+    opencv-python==4.11.0.86 \
+    tensorflow-cpu==2.15.1 \
+    ultralytics \
+    transformers \
+    accelerate \
+    timm \
+    sentencepiece
+
+ENV LANG=zh_CN.UTF-8 \
+    LC_ALL=zh_CN.UTF-8
+
+RUN mkdir -p /opt/conda/share/jupyter/lab/settings && \
+    echo '{"@jupyterlab/translation-extension:plugin": {"locale": "zh_CN"}}' > /opt/conda/share/jupyter/lab/settings/overrides.json
+
+RUN python - <<'PY'
+import pathlib
+import textwrap
+import notebook
+import nbclassic
+
+custom_dirs = [
+    pathlib.Path(notebook.__file__).resolve().parent / "static" / "custom",
+    pathlib.Path(nbclassic.__file__).resolve().parent / "static" / "custom",
+]
+for custom_dir in custom_dirs:
+    custom_dir.mkdir(parents=True, exist_ok=True)
+
+patch_js = textwrap.dedent(
+    """
+    (function () {
+      if (window.__trainingWsPatched) return;
+      window.__trainingWsPatched = true;
+
+      var cfg = {};
+      try {
+        var cfgEl = document.getElementById('jupyter-config-data');
+        cfg = cfgEl ? JSON.parse(cfgEl.textContent || '{}') : {};
+      } catch (err) {
+        cfg = {};
+      }
+
+      var baseUrl = typeof cfg.baseUrl === 'string' && cfg.baseUrl ? cfg.baseUrl : '/';
+      var token = typeof cfg.token === 'string' ? cfg.token : '';
+      if (baseUrl.charAt(0) !== '/') baseUrl = '/' + baseUrl;
+      if (baseUrl.charAt(baseUrl.length - 1) !== '/') baseUrl += '/';
+
+      var NativeWebSocket = window.WebSocket;
+      if (!NativeWebSocket) return;
+
+      function rewrite(rawUrl) {
+        try {
+          var current = new URL(window.location.href);
+          var wsUrl = new URL(String(rawUrl), current.href);
+          if (!/^wss?:$/.test(wsUrl.protocol)) {
+            wsUrl.protocol = current.protocol === 'https:' ? 'wss:' : 'ws:';
+          }
+
+          var isKernelChannel = /\\/api\\/kernels\\/[^/]+\\/channels$/.test(wsUrl.pathname);
+          if (isKernelChannel && wsUrl.pathname.indexOf(baseUrl) !== 0) {
+            var path = wsUrl.pathname.charAt(0) === '/' ? wsUrl.pathname.slice(1) : wsUrl.pathname;
+            wsUrl.pathname = baseUrl + path;
+          }
+          if (isKernelChannel && token && !wsUrl.searchParams.get('token')) {
+            wsUrl.searchParams.set('token', token);
+          }
+          return wsUrl.toString();
+        } catch (err) {
+          return rawUrl;
+        }
+      }
+
+      function PatchedWebSocket(url, protocols) {
+        var fixed = rewrite(url);
+        if (arguments.length > 1) return new NativeWebSocket(fixed, protocols);
+        return new NativeWebSocket(fixed);
+      }
+
+      PatchedWebSocket.prototype = NativeWebSocket.prototype;
+      Object.defineProperty(PatchedWebSocket, 'CONNECTING', { value: NativeWebSocket.CONNECTING });
+      Object.defineProperty(PatchedWebSocket, 'OPEN', { value: NativeWebSocket.OPEN });
+      Object.defineProperty(PatchedWebSocket, 'CLOSING', { value: NativeWebSocket.CLOSING });
+      Object.defineProperty(PatchedWebSocket, 'CLOSED', { value: NativeWebSocket.CLOSED });
+      window.WebSocket = PatchedWebSocket;
+    })();
+    """
+).strip() + "\n"
+
+for custom_dir in custom_dirs:
+    (custom_dir / "custom-preload.js").write_text(patch_js, encoding="utf-8")
+    (custom_dir / "custom.js").write_text(patch_js, encoding="utf-8")
+    print(f"patched notebook custom scripts: {custom_dir}")
+PY
+
+WORKDIR /home/jovyan/work

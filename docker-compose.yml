@@ -1,0 +1,263 @@
+﻿# docker-compose.yml - 瀹炶骞冲彴鏍稿績鏈嶅姟閮ㄧ讲閰嶇疆
+
+services:
+  # ==================== 鍩虹璁炬柦鏈嶅姟 ====================
+
+  # Nginx 鍙嶅悜浠ｇ悊
+  nginx:
+    image: nginx:alpine
+    container_name: training-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - experiment-manager
+      - jupyterhub
+    networks:
+      - training-network
+    restart: always
+
+  # PostgreSQL 鏁版嵁搴?
+  postgres:
+    image: postgres:15
+    container_name: training-postgres
+    environment:
+      POSTGRES_USER: jupyterhub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: jupyterhub
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U jupyterhub" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缂撳瓨
+  redis:
+    image: redis:7-alpine
+    container_name: training-redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ==================== 鏍稿績搴旂敤鏈嶅姟 ====================
+
+  # 鍓嶇搴旂敤
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: training-frontend
+    networks:
+      - training-network
+    restart: unless-stopped
+
+  # 瀹為獙绠＄悊鍚庣
+  experiment-manager:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: training-experiment-manager
+    ports:
+      - "8001:8000"
+    networks:
+      - training-network
+    volumes:
+      - training-uploads:/app/uploads
+    environment:
+      DATABASE_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      REDIS_URL: redis://redis:6379/0
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      # JupyterHub multi-tenant integration
+      JUPYTERHUB_INTERNAL_URL: http://jupyterhub:8000${JUPYTERHUB_BASE_URL:-/jupyter}
+      JUPYTERHUB_PUBLIC_URL: ${JUPYTERHUB_PUBLIC_URL:-/jupyter}
+      JUPYTERHUB_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      JUPYTER_WORKSPACE_UI: ${JUPYTER_WORKSPACE_UI:-lab}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # JupyterHub
+  jupyterhub:
+    build:
+      context: ./jupyterhub
+      dockerfile: Dockerfile
+    container_name: training-jupyterhub
+    ports:
+      - "8003:8000"
+    volumes:
+      # 鎸傝浇 Docker socket 浠ヤ究鍚姩鐢ㄦ埛瀹瑰櫒
+      - /var/run/docker.sock:/var/run/docker.sock
+      # JupyterHub 鏁版嵁鎸佷箙鍖?
+      - jupyterhub-data:/srv/jupyterhub
+      # Shared uploads volume for dynamic resource policy
+      - training-uploads:/srv/jupyterhub/shared-uploads
+      # 鎸傝浇閰嶇疆鏂囦欢 (寮€鍙戞ā寮忔帹鑽?
+      - ./jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
+    environment:
+      # 鏁版嵁搴撻厤缃?
+      POSTGRES_DB: jupyterhub
+      POSTGRES_HOST: postgres
+      HUB_DB_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      # Docker Spawner 閰嶇疆
+      DOCKER_NETWORK_NAME: training-network
+      # JupyterLab 闀滃儚鍚嶇О
+      DOCKER_NOTEBOOK_IMAGE: training-lab:latest
+      # Backend service token (for Hub API calls)
+      EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
+      RESOURCE_POLICY_FILE: /srv/jupyterhub/shared-uploads/user_resource_policy.json
+      ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-admin}
+      TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
+    networks:
+      - training-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lab-image-builder:
+        condition: service_completed_successfully
+      data-loader:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # 杩欐槸涓€涓复鏃剁殑鏋勫缓鏈嶅姟锛岀敤浜庢瀯寤哄鐢熼暅鍍?
+  # 鍦?docker compose up 鏃朵細杩愯骞堕€€鍑?
+  lab-image-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.student
+    image: training-lab:latest
+    container_name: training-lab-builder
+    command: echo "Student image built successfully"
+    networks:
+      - training-network
+
+  # 鏁版嵁鍔犺浇鏈嶅姟锛氬皢瀹夸富鏈虹殑瀹為獙鏂囦欢鍚屾鍒?Docker 鍗?
+  data-loader:
+    image: alpine:latest
+    volumes:
+      - ./experiments:/src
+      - course-materials:/dst
+    command: sh -c "cp -r /src/* /dst/ && echo 'Data sync complete'"
+    networks:
+      - training-network
+
+  # ==================== AI涓庢櫤鑳芥湇鍔?====================
+
+  # Ollama 鏈湴澶фā鍨?
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: training-ollama
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   networks:
+  #     - training-network
+  #   restart: unless-stopped
+
+  # AI 鍔╂墜鏈嶅姟
+  ai-assistant:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: training-ai-assistant
+    ports:
+      - "8002:8000"
+    networks:
+      - training-network
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      CACHE_TTL: ${CACHE_TTL:-3600}
+      MAX_HISTORY: ${MAX_HISTORY:-10}
+    # depends_on:
+    #   - ollama
+    restart: unless-stopped
+
+  # ==================== 鐩戞帶鏈嶅姟 ====================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: training-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: training-grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3001:3000"
+    networks:
+      - training-network
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+# ==================== 缃戠粶閰嶇疆 ====================
+
+networks:
+  training-network:
+    name: training-network
+    driver: bridge
+
+# ==================== 鏁版嵁鍗烽厤缃?====================
+
+volumes:
+  postgres-data:
+    name: training-postgres-data
+  redis-data:
+    name: training-redis-data
+  jhub-home:
+    name: training-jhub-home
+  training-uploads:
+    name: training-uploads
+  jupyterhub-data:
+    name: training-jupyterhub-data
+  ollama-data:
+    name: training-ollama-data
+  prometheus-data:
+    name: training-prometheus-data
+  grafana-data:
+    name: training-grafana-data
+  course-materials:
+    name: training-course-materials
+  shared-datasets:
+    name: training-shared-datasets
+  shared-workspace:
+    name: training-shared-workspace
+
+

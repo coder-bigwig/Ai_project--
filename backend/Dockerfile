@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    fastapi==0.104.0 \
+    uvicorn[standard]==0.24.0 \
+    sqlalchemy==2.0.23 \
+    psycopg2-binary==2.9.7 \
+    redis==5.0.1 \
+    celery==5.3.4 \
+    python-multipart==0.0.6 \
+    requests==2.31.0 \
+    openpyxl==3.1.5 \
+    tavily-python==0.5.0
+
+COPY experiment_manager.py /app/main.py
+COPY init_db.py /app/init_db.py
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

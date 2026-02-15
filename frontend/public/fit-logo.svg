@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="260" viewBox="0 0 260 260" role="img" aria-labelledby="fit-title fit-desc">
+  <title id="fit-title">FIT Emblem</title>
+  <desc id="fit-desc">Blue and white emblem of Fuzhou Institute of Technology.</desc>
+
+  <defs>
+    <path id="topArc" d="M 34 130 A 96 96 0 0 1 226 130" />
+    <path id="bottomArc" d="M 226 130 A 96 96 0 0 1 34 130" />
+  </defs>
+
+  <rect x="0" y="0" width="260" height="260" fill="#ffffff" />
+
+  <circle cx="130" cy="130" r="122" fill="#ffffff" stroke="#1f67b5" stroke-width="4" />
+  <circle cx="130" cy="130" r="96" fill="#ffffff" stroke="#1f67b5" stroke-width="2.5" />
+
+  <text fill="#1f67b5" font-size="18" font-family="SimSun, STSong, serif" letter-spacing="4">
+    <textPath href="#topArc" startOffset="50%" text-anchor="middle">福州理工学院</textPath>
+  </text>
+  <text fill="#1f67b5" font-size="8.8" font-family="Times New Roman, serif" letter-spacing="1.4">
+    <textPath href="#bottomArc" startOffset="50%" text-anchor="middle">FUZHOU INSTITUTE OF TECHNOLOGY</textPath>
+  </text>
+
+  <circle cx="130" cy="130" r="52" fill="#ffffff" stroke="#1f67b5" stroke-width="2.2" />
+
+  <g fill="none" stroke="#1f67b5" stroke-width="4" stroke-linecap="round">
+    <path d="M 93 163 C 81 154 72 140 72 125 C 72 109 83 95 95 87" />
+    <path d="M 100 160 C 90 151 83 139 83 126 C 83 114 90 103 99 96" />
+    <path d="M 167 163 C 179 154 188 140 188 125 C 188 109 177 95 165 87" />
+    <path d="M 160 160 C 170 151 177 139 177 126 C 177 114 170 103 161 96" />
+  </g>
+
+  <g fill="#1f67b5">
+    <path d="M 130 101 C 110 102 101 119 108 132 C 113 141 126 146 137 145 C 152 143 160 150 156 159 C 150 171 126 173 112 163 L 106 174 C 127 186 161 181 167 161 C 171 146 161 132 141 131 C 126 130 120 124 121 117 C 123 108 136 106 146 110 L 152 100 C 145 97 137 100 130 101 Z" />
+    <ellipse cx="130" cy="130" rx="8" ry="4" fill="#ffffff" />
+  </g>
+
+  <path d="M 112 181 C 124 191 136 191 148 181" fill="none" stroke="#1f67b5" stroke-width="3" stroke-linecap="round" />
+</svg>

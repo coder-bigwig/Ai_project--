@@ -1,0 +1,267 @@
+import json
+import os
+import re
+
+
+def _parse_accounts(raw: str, fallback: str) -> list:
+    source = raw if raw is not None else fallback
+    parts = [item.strip() for item in str(source).split(",")]
+    return [item for item in parts if item]
+
+# Base Config
+c.JupyterHub.db_url = os.environ.get(
+    "HUB_DB_URL", "postgresql://jupyterhub:changeme@postgres/jupyterhub"
+)
+
+# Optional: serve JupyterHub behind a path prefix (recommended for server deploy).
+# Example: set `JUPYTERHUB_BASE_URL=/jupyter` and put Nginx proxy at `/jupyter/`.
+def _normalize_base_url(value: str) -> str:
+    base = (value or "/").strip()
+    if not base.startswith("/"):
+        base = f"/{base}"
+    if not base.endswith("/"):
+        base = f"{base}/"
+    return base
+
+base_url = _normalize_base_url(os.environ.get("JUPYTERHUB_BASE_URL", "/"))
+c.JupyterHub.bind_url = f"http://0.0.0.0:8000{base_url}"
+
+# Auth - DummyAuthenticator (any username; optional shared password)
+from jupyterhub.auth import DummyAuthenticator
+
+c.JupyterHub.authenticator_class = DummyAuthenticator
+dummy_password = os.environ.get("DUMMY_PASSWORD")
+if dummy_password:
+    c.DummyAuthenticator.password = dummy_password
+admin_accounts = set(_parse_accounts(os.environ.get("ADMIN_ACCOUNTS"), "admin"))
+admin_accounts.update({"teacher1"})  # backward compatible legacy account
+c.Authenticator.admin_users = admin_accounts
+c.JupyterHub.admin_access = True
+
+# Multi-tenant: each user gets a dedicated notebook container.
+from dockerspawner import DockerSpawner
+
+network_name = os.environ.get("DOCKER_NETWORK_NAME", "training-network")
+notebook_image = os.environ.get("DOCKER_NOTEBOOK_IMAGE", "training-lab:latest")
+resource_policy_file = os.environ.get("RESOURCE_POLICY_FILE", "/srv/jupyterhub/user_resource_policy.json")
+teacher_accounts = set(
+    _parse_accounts(
+        os.environ.get("TEACHER_ACCOUNTS"),
+        "teacher_001,teacher_002,teacher_003,teacher_004,teacher_005",
+    )
+)
+admin_accounts = set(c.Authenticator.admin_users or set())
+enable_storage_limit = str(os.environ.get("ENABLE_DOCKER_STORAGE_LIMIT", "0")).strip() == "1"
+serverapp_websocket_url = str(os.environ.get("SERVERAPP_WEBSOCKET_URL", "")).strip()
+
+default_role_limits = {
+    "student": {"cpu_limit": 2.0, "memory_limit": "8G", "storage_limit": "2G"},
+    "teacher": {"cpu_limit": 2.0, "memory_limit": "8G", "storage_limit": "2G"},
+    "admin": {"cpu_limit": 4.0, "memory_limit": "8G", "storage_limit": "20G"},
+}
+_SIZE_LIMIT_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?b?)?\s*$", re.IGNORECASE)
+
+
+def _default_size_unit(default_value):
+    match = _SIZE_LIMIT_PATTERN.match(str(default_value or "").strip())
+    if not match:
+        return "B"
+    unit_raw = (match.group(2) or "").upper()
+    if unit_raw in {"K", "KB"}:
+        return "K"
+    if unit_raw in {"M", "MB"}:
+        return "M"
+    if unit_raw in {"G", "GB"}:
+        return "G"
+    if unit_raw in {"T", "TB"}:
+        return "T"
+    return "B"
+
+
+def _normalize_size_limit(value, default_value):
+    raw = str(value or "").strip()
+    if not raw:
+        return default_value
+
+    match = _SIZE_LIMIT_PATTERN.match(raw)
+    if not match:
+        return default_value
+
+    number = float(match.group(1))
+    if number <= 0:
+        return default_value
+
+    default_unit = _default_size_unit(default_value)
+    unit_raw = (match.group(2) or "").upper()
+    if unit_raw == "":
+        unit = default_unit
+    elif unit_raw == "B":
+        # Backward compatibility: convert legacy values like "8B" to role-default units.
+        unit = default_unit if default_unit != "B" else "B"
+    elif unit_raw in {"K", "KB"}:
+        unit = "K"
+    elif unit_raw in {"M", "MB"}:
+        unit = "M"
+    elif unit_raw in {"G", "GB"}:
+        unit = "G"
+    elif unit_raw in {"T", "TB"}:
+        unit = "T"
+    else:
+        unit = "B"
+
+    if number.is_integer():
+        number_text = str(int(number))
+    else:
+        number_text = str(round(number, 3)).rstrip("0").rstrip(".")
+    if unit == "B":
+        return number_text
+    return f"{number_text}{unit}"
+
+
+def _normalize_quota(raw, role):
+    role_key = role if role in default_role_limits else "student"
+    base = default_role_limits[role_key]
+    source = raw if isinstance(raw, dict) else {}
+
+    try:
+        cpu_limit = float(source.get("cpu_limit", base["cpu_limit"]))
+    except Exception:
+        cpu_limit = float(base["cpu_limit"])
+    cpu_limit = max(0.1, min(cpu_limit, 128.0))
+
+    memory_limit = _normalize_size_limit(source.get("memory_limit"), base["memory_limit"])
+    storage_limit = _normalize_size_limit(source.get("storage_limit"), base["storage_limit"])
+    return {
+        "cpu_limit": cpu_limit,
+        "memory_limit": memory_limit,
+        "storage_limit": storage_limit,
+    }
+
+
+def _infer_role(username: str) -> str:
+    user = str(username or "").strip()
+    if user in admin_accounts:
+        return "admin"
+    if user in teacher_accounts:
+        return "teacher"
+    return "student"
+
+
+def _load_resource_policy():
+    payload = {"defaults": dict(default_role_limits), "overrides": {}}
+    if not os.path.exists(resource_policy_file):
+        return payload
+
+    try:
+        with open(resource_policy_file, "r", encoding="utf-8") as file_obj:
+            data = json.load(file_obj) or {}
+        if isinstance(data, dict):
+            payload.update(data)
+    except Exception as exc:
+        print(f"[resource-policy] failed to load policy: {exc}")
+    return payload
+
+
+def _effective_quota(username: str):
+    role = _infer_role(username)
+    policy = _load_resource_policy()
+    defaults = policy.get("defaults", {})
+    base = _normalize_quota(defaults.get(role), role)
+    overrides = policy.get("overrides", {})
+    if isinstance(overrides, dict):
+        custom = overrides.get(username)
+        if isinstance(custom, dict):
+            return _normalize_quota(custom, role)
+    return base
+
+
+async def _apply_user_resource_limits(spawner):
+    username = str(getattr(getattr(spawner, "user", None), "name", "") or "")
+    quota = _effective_quota(username)
+    role = _infer_role(username)
+
+    spawner.cpu_limit = float(quota["cpu_limit"])
+    spawner.mem_limit = quota["memory_limit"]
+
+    extra_host_config = dict(spawner.extra_host_config or {})
+    extra_host_config["network_mode"] = network_name
+    if enable_storage_limit:
+        storage_opt = dict(extra_host_config.get("storage_opt") or {})
+        storage_opt["size"] = quota["storage_limit"]
+        extra_host_config["storage_opt"] = storage_opt
+    spawner.extra_host_config = extra_host_config
+
+    environment = dict(spawner.environment or {})
+    environment["TRAINING_USER_ROLE"] = role
+    environment["TRAINING_CPU_LIMIT"] = str(quota["cpu_limit"])
+    environment["TRAINING_MEMORY_LIMIT"] = quota["memory_limit"]
+    environment["TRAINING_STORAGE_LIMIT"] = quota["storage_limit"]
+    spawner.environment = environment
+
+c.JupyterHub.spawner_class = DockerSpawner
+
+# Hub listens inside its container; other containers reach it via service name.
+c.JupyterHub.hub_ip = "0.0.0.0"
+c.JupyterHub.hub_connect_ip = os.environ.get("HUB_CONNECT_IP", "jupyterhub")
+
+c.DockerSpawner.image = notebook_image
+c.DockerSpawner.network_name = network_name
+c.DockerSpawner.use_internal_ip = True
+c.DockerSpawner.extra_host_config = {"network_mode": network_name}
+c.Spawner.pre_spawn_hook = _apply_user_resource_limits
+
+# Persist per-user work directory via a dedicated docker volume.
+c.DockerSpawner.remove = True
+c.DockerSpawner.volumes = {
+    "training-user-{username}": {"bind": "/home/jovyan/work", "mode": "rw"},
+    # Shared read-only materials.
+    "training-course-materials": {"bind": "/home/jovyan/course", "mode": "ro"},
+    "training-shared-datasets": {"bind": "/home/jovyan/datasets", "mode": "ro"},
+}
+
+# Root includes work + course + datasets. Land on work by default.
+c.DockerSpawner.notebook_dir = "/home/jovyan"
+c.Spawner.default_url = "/lab/tree/work"
+
+# Allow embedding JupyterLab in the portal iframe (different port => relax CSP).
+c.Spawner.args = [
+    "--ServerApp.allow_origin=*",
+    # JupyterLab kernel channels uses WebSockets, which performs strict origin checks.
+    # When running behind reverse proxies, the Host header reaching the single-user server
+    # may differ from the browser Origin. Allow all origins for teaching-platform embeds.
+    "--ServerApp.allow_origin_pat=.*",
+    "--ServerApp.disable_check_xsrf=True",
+    '--ServerApp.tornado_settings={"headers":{"Content-Security-Policy":"frame-ancestors *","Access-Control-Allow-Origin":"*"}}',
+]
+if serverapp_websocket_url:
+    c.Spawner.args.append(f"--ServerApp.websocket_url={serverapp_websocket_url}")
+
+# Default: Hub home
+c.JupyterHub.default_url = "/hub/home"
+
+# Service token for the training platform backend to manage user servers.
+service_token = os.environ.get("EXPERIMENT_MANAGER_API_TOKEN", "").strip()
+if service_token:
+    c.JupyterHub.services = [
+        {
+            "name": "experiment-manager",
+            "api_token": service_token,
+            "admin": True,
+        }
+    ]
+
+# Logs
+c.JupyterHub.log_level = "INFO"
+c.Spawner.debug = False
+# Allow Prometheus to scrape /hub/metrics without Hub auth.
+c.JupyterHub.authenticate_prometheus = False
+
+# Allow embedding Hub pages as well (login page shown inside iframe on first access).
+c.JupyterHub.tornado_settings = {
+    "headers": {
+        "Content-Security-Policy": "frame-ancestors 'self' http://localhost:8080 *",
+        "Access-Control-Allow-Origin": "*",
+    },
+    # Respect X-Forwarded-* headers when running behind Nginx / TLS termination.
+    "xheaders": True,
+}
