@@ -394,7 +394,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
         {
           title: experiment.title || '',
           description: experiment.description || '',
-          difficulty: experiment.difficulty || '鍒濈骇',
+          difficulty: experiment.difficulty || '初级',
           tags: Array.isArray(experiment.tags) ? experiment.tags.join(', ') : '',
           notebook_path: experiment.notebook_path || '',
           published: !experiment.published,

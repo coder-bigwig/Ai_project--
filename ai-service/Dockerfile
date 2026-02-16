@@ -8,6 +8,6 @@ RUN pip install --no-cache-dir \
     httpx==0.25.0 \
     tavily-python==0.5.0
 
-COPY ai_assistant.py /app/main.py
+COPY ai_assistant.py /app/ai_assistant.py
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "ai_assistant:app", "--host", "0.0.0.0", "--port", "8000"]

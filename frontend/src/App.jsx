@@ -13,6 +13,25 @@ const REMEMBER_ME_KEY = 'rememberMe';
 const REMEMBERED_USERNAME_KEY = 'rememberedUsername';
 const REMEMBERED_PASSWORD_KEY = 'rememberedPassword';
 
+function parseBooleanFlag(value) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return false;
+        if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+        if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+    }
+    return Boolean(value);
+}
+
+function isStudentLoginPayload(loginData) {
+    const role = String(loginData?.role || '').trim().toLowerCase();
+    if (role === 'student' || role === '学生') return true;
+    const studentId = String(loginData?.student_id || '').trim();
+    return Boolean(studentId) && role !== 'teacher' && role !== 'admin';
+}
+
 function App() {
     const [rememberMe, setRememberMe] = useState(() => localStorage.getItem(REMEMBER_ME_KEY) === 'true');
     const [username, setUsername] = useState(() => {
@@ -24,6 +43,46 @@ function App() {
     const [isLoading, setIsLoading] = useState(false);
     const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem('isLoggedIn'));
     const [userRole, setUserRole] = useState(() => localStorage.getItem('userRole') || null);
+    const [pendingSecuritySetup, setPendingSecuritySetup] = useState(null);
+    const [securitySetupSubmitting, setSecuritySetupSubmitting] = useState(false);
+
+    const applyLoginSession = (loginData, rawPassword) => {
+        if (!loginData || !loginData.username || !loginData.role) {
+            return;
+        }
+
+        localStorage.setItem('username', loginData.username);
+        localStorage.setItem('userRole', loginData.role);
+        localStorage.setItem('isLoggedIn', 'true');
+
+        const aiSessionToken = String(loginData.ai_session_token || '').trim();
+        if (aiSessionToken) localStorage.setItem(AI_SESSION_TOKEN_KEY, aiSessionToken);
+        else localStorage.removeItem(AI_SESSION_TOKEN_KEY);
+
+        if (loginData.real_name) localStorage.setItem('real_name', loginData.real_name);
+        else localStorage.removeItem('real_name');
+
+        if (loginData.class_name) localStorage.setItem('class_name', loginData.class_name);
+        else localStorage.removeItem('class_name');
+
+        if (loginData.student_id) localStorage.setItem('student_id', loginData.student_id);
+        else localStorage.removeItem('student_id');
+
+        if (loginData.organization) localStorage.setItem('organization', loginData.organization);
+        else localStorage.removeItem('organization');
+
+        if (rememberMe) {
+            localStorage.setItem(REMEMBERED_USERNAME_KEY, loginData.username);
+            localStorage.setItem(REMEMBERED_PASSWORD_KEY, rawPassword);
+        } else {
+            localStorage.removeItem(REMEMBERED_USERNAME_KEY);
+            localStorage.removeItem(REMEMBERED_PASSWORD_KEY);
+        }
+
+        setUsername(loginData.username);
+        setUserRole(loginData.role);
+        setIsLoggedIn(true);
+    };
 
     const handleLogout = () => {
         [
@@ -47,6 +106,8 @@ function App() {
         setUserRole(null);
         setUsername(shouldRemember ? rememberedUsername : '');
         setPassword(shouldRemember ? rememberedPassword : '');
+        setPendingSecuritySetup(null);
+        setSecuritySetupSubmitting(false);
     };
 
     useEffect(() => {
@@ -75,41 +136,55 @@ function App() {
                 password
             });
 
-            localStorage.setItem('username', loginRes.data.username);
-            localStorage.setItem('userRole', loginRes.data.role);
-            localStorage.setItem('isLoggedIn', 'true');
-            const aiSessionToken = String(loginRes.data.ai_session_token || '').trim();
-            if (aiSessionToken) localStorage.setItem(AI_SESSION_TOKEN_KEY, aiSessionToken);
-            else localStorage.removeItem(AI_SESSION_TOKEN_KEY);
+            const loginData = loginRes.data || {};
+            const forceSecuritySetup = parseBooleanFlag(loginData.force_security_setup);
+            const securityQuestionSet = parseBooleanFlag(loginData.security_question_set);
+            const shouldRequireSecuritySetup = (
+                isStudentLoginPayload(loginData)
+                && (forceSecuritySetup || !securityQuestionSet)
+            );
 
-            if (loginRes.data.real_name) localStorage.setItem('real_name', loginRes.data.real_name);
-            else localStorage.removeItem('real_name');
-
-            if (loginRes.data.class_name) localStorage.setItem('class_name', loginRes.data.class_name);
-            else localStorage.removeItem('class_name');
-
-            if (loginRes.data.student_id) localStorage.setItem('student_id', loginRes.data.student_id);
-            else localStorage.removeItem('student_id');
-
-            if (loginRes.data.organization) localStorage.setItem('organization', loginRes.data.organization);
-            else localStorage.removeItem('organization');
-
-            if (rememberMe) {
-                localStorage.setItem(REMEMBERED_USERNAME_KEY, loginRes.data.username);
-                localStorage.setItem(REMEMBERED_PASSWORD_KEY, password);
-            } else {
-                localStorage.removeItem(REMEMBERED_USERNAME_KEY);
-                localStorage.removeItem(REMEMBERED_PASSWORD_KEY);
+            if (shouldRequireSecuritySetup) {
+                setPendingSecuritySetup({
+                    username: loginData.username,
+                    password,
+                    loginData
+                });
+                return;
             }
 
-            setUsername(loginRes.data.username);
-            setUserRole(loginRes.data.role);
-            setIsLoggedIn(true);
+            applyLoginSession(loginData, password);
         } catch (error) {
             console.error('登录失败:', error);
             alert(error.response?.data?.detail || '登录失败，请重试');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleCancelFirstSecuritySetup = () => {
+        setPendingSecuritySetup(null);
+    };
+
+    const handleSubmitFirstSecuritySetup = async (securityQuestion, securityAnswer) => {
+        if (!pendingSecuritySetup || !pendingSecuritySetup.username) {
+            return;
+        }
+
+        setSecuritySetupSubmitting(true);
+        try {
+            const response = await axios.post(`${API_BASE_URL}/api/student/profile/security-question`, {
+                student_id: pendingSecuritySetup.username,
+                security_question: securityQuestion,
+                security_answer: securityAnswer
+            });
+            alert(response.data?.message || '密保问题已保存');
+            applyLoginSession(pendingSecuritySetup.loginData, pendingSecuritySetup.password);
+            setPendingSecuritySetup(null);
+        } catch (error) {
+            alert(`保存密保失败：${error.response?.data?.detail || error.message}`);
+        } finally {
+            setSecuritySetupSubmitting(false);
         }
     };
 
@@ -129,6 +204,10 @@ function App() {
                                 setRememberMe={setRememberMe}
                                 handleLogin={handleLogin}
                                 isLoading={isLoading}
+                                pendingSecuritySetup={pendingSecuritySetup}
+                                securitySetupSubmitting={securitySetupSubmitting}
+                                onCancelFirstSecuritySetup={handleCancelFirstSecuritySetup}
+                                onSubmitFirstSecuritySetup={handleSubmitFirstSecuritySetup}
                             />
                         ) : (
                             <Navigate to="/" replace />
@@ -167,7 +246,11 @@ function LoginView({
     rememberMe,
     setRememberMe,
     handleLogin,
-    isLoading
+    isLoading,
+    pendingSecuritySetup,
+    securitySetupSubmitting,
+    onCancelFirstSecuritySetup,
+    onSubmitFirstSecuritySetup
 }) {
     const [forgotOpen, setForgotOpen] = useState(false);
 
@@ -239,6 +322,90 @@ function LoginView({
                 onClose={() => setForgotOpen(false)}
                 onResetSuccess={handleResetSuccess}
             />
+            <FirstLoginSecurityDialog
+                open={Boolean(pendingSecuritySetup)}
+                username={pendingSecuritySetup?.username || ''}
+                submitting={securitySetupSubmitting}
+                onCancel={onCancelFirstSecuritySetup}
+                onSubmit={onSubmitFirstSecuritySetup}
+            />
+        </div>
+    );
+}
+
+function FirstLoginSecurityDialog({ open, username, submitting, onCancel, onSubmit }) {
+    const [securityQuestion, setSecurityQuestion] = useState('');
+    const [securityAnswer, setSecurityAnswer] = useState('');
+
+    useEffect(() => {
+        if (!open) {
+            setSecurityQuestion('');
+            setSecurityAnswer('');
+        }
+    }, [open]);
+
+    const handleSubmit = async (event) => {
+        event.preventDefault();
+        const normalizedQuestion = String(securityQuestion || '').trim();
+        const normalizedAnswer = String(securityAnswer || '').trim();
+
+        if (normalizedQuestion.length < 2) {
+            alert('密保问题至少2个字符');
+            return;
+        }
+        if (normalizedAnswer.length < 2) {
+            alert('密保答案至少2个字符');
+            return;
+        }
+
+        if (typeof onSubmit === 'function') {
+            await onSubmit(normalizedQuestion, normalizedAnswer);
+        }
+    };
+
+    if (!open) return null;
+
+    return (
+        <div className="simple-forgot-overlay">
+            <div className="simple-forgot-dialog simple-first-security-dialog">
+                <h3>首次登录请先设置密保</h3>
+                <p className="simple-first-security-tip">
+                    账号：{username || '-'}。设置后可用于忘记密码时自助找回，完成后将不再提示。
+                </p>
+
+                <form className="simple-first-security-form" onSubmit={handleSubmit}>
+                    <label htmlFor="first-security-question">密保问题</label>
+                    <input
+                        id="first-security-question"
+                        type="text"
+                        value={securityQuestion}
+                        onChange={(event) => setSecurityQuestion(event.target.value)}
+                        placeholder="例如：我最喜欢的老师名字？"
+                        disabled={submitting}
+                        required
+                    />
+
+                    <label htmlFor="first-security-answer">密保答案</label>
+                    <input
+                        id="first-security-answer"
+                        type="text"
+                        value={securityAnswer}
+                        onChange={(event) => setSecurityAnswer(event.target.value)}
+                        placeholder="请输入密保答案"
+                        disabled={submitting}
+                        required
+                    />
+
+                    <div className="simple-forgot-actions">
+                        <button type="button" className="secondary" onClick={onCancel} disabled={submitting}>
+                            返回登录页
+                        </button>
+                        <button type="submit" disabled={submitting}>
+                            {submitting ? '保存中...' : '保存并进入系统'}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     );
 }

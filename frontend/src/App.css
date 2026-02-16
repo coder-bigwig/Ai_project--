@@ -191,6 +191,22 @@ body {
     font-size: 14px;
 }
 
+.simple-first-security-dialog {
+    max-width: 520px;
+}
+
+.simple-first-security-tip {
+    margin: 0 0 6px;
+    color: #556b80;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.simple-first-security-form {
+    display: grid;
+    gap: 8px;
+}
+
 .simple-forgot-row {
     display: grid;
     grid-template-columns: 1fr 130px;

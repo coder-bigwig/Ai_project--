@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir \
     openpyxl==3.1.5 \
     tavily-python==0.5.0
 
-COPY experiment_manager.py /app/main.py
+COPY app/ /app/app/
 COPY init_db.py /app/init_db.py
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
