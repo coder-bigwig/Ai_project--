@@ -294,6 +294,32 @@ function TeacherUserManagement({ username, userRole }) {
         }
     };
 
+    const handleBatchDeleteStudentsByClass = async () => {
+        if (!classFilter) {
+            alert('请先选择班级');
+            return;
+        }
+        if (!window.confirm(`确定批量删除班级 ${classFilter} 的全部学生吗？此操作不可恢复。`)) return;
+        try {
+            const res = await axios.delete(`${API_BASE_URL}/api/admin/students`, {
+                params: {
+                    teacher_username: username,
+                    class_name: classFilter,
+                }
+            });
+            await loadStudents({
+                targetPage: 1,
+                targetKeyword: keyword,
+                targetClass: classFilter,
+                targetAdmissionYear: admissionYearFilter,
+            });
+            await loadAdmissionYears();
+            alert(`批量删除完成，已删除 ${res.data?.deleted_count ?? 0} 名学生`);
+        } catch (error) {
+            alert(error.response?.data?.detail || '批量删除学生失败');
+        }
+    };
+
     const handleCreateTeacher = async () => {
         const teacherUsername = newTeacherUsername.trim();
         const teacherRealName = newTeacherRealName.trim();
@@ -461,6 +487,14 @@ function TeacherUserManagement({ username, userRole }) {
                         </select>
                         <button onClick={handleSearch}>搜索</button>
                         <button onClick={handleResetSearch}>重置</button>
+                        <button
+                            className="danger-btn"
+                            onClick={handleBatchDeleteStudentsByClass}
+                            disabled={!classFilter || loading}
+                            title={classFilter ? `删除班级 ${classFilter} 下全部学生` : '请先选择班级'}
+                        >
+                            按班级批量删除
+                        </button>
                     </div>
 
                     <div className="user-table-wrap">

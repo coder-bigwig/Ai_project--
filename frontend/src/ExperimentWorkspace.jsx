@@ -315,7 +315,7 @@ function ExperimentWorkspace() {
             navigate('/');
             return;
         }
-        navigate('/', { state: { resetCourseView: true } });
+        navigate('/');
     };
 
     return (

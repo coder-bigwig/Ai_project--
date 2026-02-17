@@ -55,6 +55,7 @@ async def start_experiment(experiment_id: str, student_id: str):
             notebook_content=user_notebook_name  # Store the filename for later reference
         )
         student_experiments_db[student_exp.id] = student_exp
+        _save_submission_registries()
 
     # Best-effort: spawn server and copy template into user's work dir.
     user_token_for_url = None
@@ -191,6 +192,7 @@ async def submit_experiment(
 
     student_exp.status = ExperimentStatus.SUBMITTED
     student_exp.submit_time = datetime.now()
+    _save_submission_registries()
     
     return {
         "message": "实验已提交",
@@ -240,6 +242,7 @@ async def upload_submission_pdf(student_exp_id: str, file: UploadFile = File(...
         created_at=datetime.now(),
     )
     submission_pdfs_db[submission_pdf_id] = record
+    _save_submission_registries()
 
     return {
         "id": record.id,
@@ -268,6 +271,7 @@ async def mark_submission_pdf_viewed(pdf_id: str, teacher_username: str):
     item.viewed = True
     item.viewed_at = datetime.now()
     item.viewed_by = teacher_username
+    _save_submission_registries()
     return _pdf_to_payload(item)
 
 async def add_submission_pdf_annotation(pdf_id: str, payload: PDFAnnotationCreateRequest):
@@ -293,6 +297,7 @@ async def add_submission_pdf_annotation(pdf_id: str, payload: PDFAnnotationCreat
         created_at=datetime.now(),
     )
     item.annotations.append(annotation)
+    _save_submission_registries()
     return _pdf_to_payload(item)
 
 async def get_student_experiments(student_id: str):
@@ -322,6 +327,7 @@ async def download_submission_pdf(pdf_id: str, teacher_username: Optional[str] =
         record.viewed = True
         record.viewed_at = datetime.now()
         record.viewed_by = teacher_username
+        _save_submission_registries()
 
     return FileResponse(
         path=record.file_path,
@@ -379,6 +385,7 @@ async def grade_experiment(
             item.viewed = True
             item.viewed_at = now
             item.viewed_by = reviewer
+    _save_submission_registries()
     
     return {
         "message": "评分成功",

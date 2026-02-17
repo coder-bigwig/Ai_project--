@@ -1,22 +1,29 @@
 # JupyterHub 实训平台
 
-基于 Docker + JupyterHub 的多租户实训平台，包含实验管理后端、前端门户、AI 助手服务与监控组件。
+基于 Docker + JupyterHub 的多租户教学实训平台，包含：
 
-## 项目状态（当前仓库）
+- 前端门户（React）
+- 实验管理后端（FastAPI）
+- AI 助手服务（FastAPI，默认 DeepSeek，可选 Tavily）
+- JupyterHub（DockerSpawner，多租户）
+- 监控（Prometheus + Grafana）
 
-- 前端为 React（`react-scripts`），不是 Vite。
-- AI 助手默认对接 DeepSeek（可选 Tavily 检索），不是默认本地 Ollama。
-- 本地完整模式通过 `docker-compose.yml` 启动，入口为 `http://localhost:8080`。
-- 前端开发热更新模式通过 `start-dev.bat` 启动，入口为 `http://localhost:3000`。
+## 1. 先看这里：三种使用方式
 
-## 目录结构
+| 目标 | 使用方式 | 入口 |
+| --- | --- | --- |
+| 本地完整运行（最常用） | `docker-compose.yml` 或 `start.bat` | `http://localhost:8080` |
+| 前端热更新开发 | `start-dev.bat` | `http://localhost:3000` |
+| Linux 服务器部署 | `docker-compose.server.yml` | `http://<服务器IP>/` |
+
+## 2. 目录结构
 
 ```text
 .
-├── ai-service/                 # AI 助手服务（FastAPI）
-├── backend/                    # 实验管理后端（FastAPI）
-├── frontend/                   # 前端门户（React + react-scripts）
-├── experiments/                # 实验与课程资源
+├── ai-service/                 # AI 助手服务
+├── backend/                    # 实验管理后端
+├── frontend/                   # 前端门户
+├── experiments/                # 课程与实验资源
 ├── jupyterhub/                 # JupyterHub 配置
 ├── monitoring/                 # Prometheus / Grafana 配置
 ├── nginx/                      # Nginx 配置
@@ -27,59 +34,60 @@
 └── stop-dev.bat                # 停止开发模式后端容器
 ```
 
-## 技术栈
+## 3. 前置要求
 
-- 核心：Docker, JupyterHub, DockerSpawner, Python
-- 前端：React 18, `react-scripts`, `react-router-dom`, `axios`
-- 后端：FastAPI
-- AI：DeepSeek API（`DEEPSEEK_*`），可选 Tavily（`TAVILY_API_KEY`）
-- 监控：Prometheus, Grafana
-- 基础服务容器：PostgreSQL, Redis, Nginx
+- Docker Desktop（Windows/Mac）或 Docker Engine（Linux）
+- Docker Compose（`docker compose` 可用）
+- Node.js 18+（仅前端开发模式需要）
 
-## 快速开始（本地完整模式）
+## 4. 本地完整模式（推荐先跑这个）
 
-### 前置要求
+### 4.1 Windows 一键启动
 
-- Docker Desktop（Windows/Mac/Linux）
-- Windows 用户建议直接使用 `start.bat`
-
-### 启动方式 A（推荐，Windows）
-
-在仓库根目录双击运行：
+在仓库根目录运行：
 
 ```bat
 start.bat
 ```
 
-脚本会执行：
+该脚本会自动执行：
 
-1. `docker-compose build`
-2. `docker-compose up -d`
+1. 构建镜像
+2. 启动容器
 3. 等待服务就绪
-4. 在 `experiment-manager` 容器中执行 `python init_db.py`
+4. 在 `experiment-manager` 容器内执行 `python init_db.py`
 
-### 启动方式 B（手动）
+### 4.2 手动启动（跨平台）
 
 ```bash
 docker compose up -d --build
 ```
 
-### 本地访问地址
+如果你是第一次手动启动，建议再执行一次初始化：
 
-- 统一入口（Nginx）：`http://localhost:8080`
-- 实验管理 API 文档：`http://localhost:8001/docs`
+```bash
+docker compose exec -T experiment-manager python init_db.py
+```
+
+### 4.3 本地访问地址
+
+- 统一入口（推荐）：`http://localhost:8080`
+- JupyterHub（经网关）：`http://localhost:8080/jupyter/`
+- 后端 API 文档（直连后端容器端口）：`http://localhost:8001/docs`
 - AI 助手 API 文档：`http://localhost:8002/docs`
-- JupyterHub：`http://localhost:8003`
+- JupyterHub（直连端口）：`http://localhost:8003`
 - Grafana：`http://localhost:3001`（默认 `admin/admin`）
 - Prometheus：`http://localhost:9090`
 
-## 开发模式（前端热更新）
+### 4.4 停止
 
-开发模式说明见 `DEV_MODE.md`。核心行为如下：
+```bash
+docker compose down
+```
 
-1. 启动后端相关容器（`postgres`/`redis`/`experiment-manager`/`ai-assistant`）
-2. 停止生产前端网关容器（`training-frontend`/`training-nginx`）
-3. 在本机启动 React dev server（`http://localhost:3000`）
+## 5. 开发模式（前端热更新）
+
+说明：`start-dev.bat` 会启动后端容器，并停止生产前端/网关容器，然后在本机启动 React dev server。
 
 启动：
 
@@ -87,91 +95,110 @@ docker compose up -d --build
 start-dev.bat
 ```
 
-停止（仅停止开发模式后端容器）：
+停止开发模式后端容器：
 
 ```bat
 stop-dev.bat
 ```
 
-仅调后端（不启动前端 dev server）：
+只启动后端，不启动前端 dev server：
 
 ```bat
 set SKIP_FRONTEND=1 && start-dev.bat
 ```
 
-## 账号与权限说明
+开发模式入口：
 
-- JupyterHub 认证使用 `DummyAuthenticator`。
-- 若未设置 `DUMMY_PASSWORD`，JupyterHub 层面可使用任意密码登录（不建议在公网环境保持默认）。
-- 门户/API 登录由后端 `/api/auth/login` 控制，不是简单“用户名前缀判断”。
-- 默认角色账号来自环境变量：
-  - `ADMIN_ACCOUNTS`（默认 `admin`）
-  - `TEACHER_ACCOUNTS`（默认 `teacher_001,teacher_002,teacher_003,teacher_004,teacher_005`）
-- 以上账号默认密码为 `123456`（建议首次登录后修改）。
-- 学生账号来自用户注册表数据（导入或已有持久化数据）。
+- 前端：`http://localhost:3000`
+- 后端 API：`http://localhost:8001`
 
-## 关键环境变量
+更多说明见 `DEV_MODE.md`。
 
-服务器部署可参考 `.env.server.example`（复制为 `.env`）：
+## 6. 服务器部署模式（Linux）
 
-- `DB_PASSWORD`
-- `EXPERIMENT_MANAGER_API_TOKEN`
-- `DUMMY_PASSWORD`
-- `JUPYTERHUB_BASE_URL`
-- `JUPYTERHUB_PUBLIC_URL`
-- `DEEPSEEK_API_KEY`
-- `DEEPSEEK_BASE_URL`
-- `DEEPSEEK_MODEL`
-- `TAVILY_API_KEY`
-
-## 服务器部署
-
-使用 `docker-compose.server.yml`，详细说明见 `DEPLOY_SERVER.md`。
-
-典型流程：
+快速步骤：
 
 ```bash
 cp .env.server.example .env
 docker compose -f docker-compose.server.yml up -d --build
 ```
 
-## 常用命令
+常用检查：
 
-启动全部服务：
+```bash
+docker compose -f docker-compose.server.yml ps
+docker compose -f docker-compose.server.yml logs -f nginx
+```
+
+默认入口：
+
+- 门户：`http://<服务器IP>/`
+- JupyterHub：`http://<服务器IP>/jupyter/`
+
+详细部署、安全和 HTTPS 说明见 `DEPLOY_SERVER.md`。
+
+## 7. 账号与认证说明（重要）
+
+- 门户/API 登录接口：`POST /api/auth/login`
+- 后端默认账号来源：
+  - 管理员：`ADMIN_ACCOUNTS`（默认 `admin`）
+  - 教师：`TEACHER_ACCOUNTS`（默认 `teacher_001` 到 `teacher_005`）
+- 默认密码：`123456`（建议首次登录后修改）
+- 学生账号来自用户注册数据（导入或已有持久化）
+- JupyterHub 使用 `DummyAuthenticator`：
+  - 若未设置 `DUMMY_PASSWORD`，Hub 登录可使用任意密码
+  - 公网部署务必设置 `DUMMY_PASSWORD`
+
+## 8. 关键环境变量
+
+推荐基于 `.env.server.example` 配置：
+
+- `DB_PASSWORD`：PostgreSQL 密码
+- `EXPERIMENT_MANAGER_API_TOKEN`：后端调用 JupyterHub API 的服务 token
+- `DUMMY_PASSWORD`：JupyterHub 共享登录口令（强烈建议设置）
+- `JUPYTERHUB_BASE_URL`：Hub 路径前缀（默认 `/jupyter`）
+- `JUPYTERHUB_PUBLIC_URL`：后端返回给前端的 Hub 公网地址（默认 `/jupyter`）
+- `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL`：AI 模型配置
+- `TAVILY_API_KEY`：联网检索能力（可选）
+
+## 9. 常用命令
+
+本地完整模式：
 
 ```bash
 docker compose up -d --build
-```
-
-查看状态：
-
-```bash
 docker compose ps
-```
-
-查看后端日志：
-
-```bash
 docker compose logs -f experiment-manager
-```
-
-停止并移除容器：
-
-```bash
 docker compose down
 ```
 
-## 常见问题
+服务器模式：
 
-### 1) 端口冲突
+```bash
+docker compose -f docker-compose.server.yml up -d --build
+docker compose -f docker-compose.server.yml ps
+docker compose -f docker-compose.server.yml logs -f nginx
+docker compose -f docker-compose.server.yml down
+```
 
-本地完整模式需确保以下端口可用：`8080`、`8001`、`8002`、`8003`、`3001`、`9090`。  
+## 10. 常见问题
+
+### 10.1 端口冲突
+
+本地完整模式至少需要这些端口可用：`8080`、`8001`、`8002`、`8003`、`3001`、`9090`。  
 开发模式还需要 `3000`。
 
-### 2) `start-dev.bat` 启动失败
+### 10.2 `start-dev.bat` 启动失败
 
-首次运行时若后端容器不存在，脚本会回退到 `docker compose up`。若仍失败，先执行一次 `start.bat` 拉取并构建基础镜像。
+- 脚本会先尝试 `docker start` 既有容器，不存在时自动回退到 `docker compose up`。
+- 若仍失败，先执行一次 `start.bat` 完成初始构建，再运行 `start-dev.bat`。
 
-### 3) 公网部署安全性
+### 10.3 AI 助手不可用
 
-请务必设置强口令与 `DUMMY_PASSWORD`，并按需启用 HTTPS 反向代理。
+- 检查 `DEEPSEEK_API_KEY` 是否正确配置。
+- 查看日志：`docker compose logs -f ai-assistant`。
+
+### 10.4 公网部署安全
+
+- 必须设置强密码（`DB_PASSWORD`、`DUMMY_PASSWORD`、`EXPERIMENT_MANAGER_API_TOKEN`）。
+- 建议启用 HTTPS 反向代理。

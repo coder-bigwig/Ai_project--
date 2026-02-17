@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir \
     fastapi==0.104.0 \
     uvicorn[standard]==0.24.0 \
     sqlalchemy==2.0.23 \
+    asyncpg==0.30.0 \
     psycopg2-binary==2.9.7 \
     redis==5.0.1 \
     celery==5.3.4 \

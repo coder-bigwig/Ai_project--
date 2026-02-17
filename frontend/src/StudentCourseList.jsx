@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import ResourcePreviewContent from './ResourcePreviewContent';
 import './StudentCourseList.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
-const COURSE_OVERVIEW_RESET_KEY = 'studentCourseForceOverview';
+const SELECTED_COURSE_CACHE_KEY = 'studentSelectedCourseKey';
 
 const TEXT = {
     platformTitle: '福州理工学院AI编程实践教学平台',
@@ -177,13 +177,14 @@ function getTeacherName(course) {
 }
 
 function StudentCourseList({ username, onLogout }) {
-    const location = useLocation();
     const navigate = useNavigate();
     const [coursesWithStatus, setCoursesWithStatus] = useState([]);
     const [loading, setLoading] = useState(true);
     const [pdfFiles, setPdfFiles] = useState({});
     const [activeModule, setActiveModule] = useState('courses');
-    const [selectedCourseKey, setSelectedCourseKey] = useState('');
+    const [selectedCourseKey, setSelectedCourseKey] = useState(
+        () => sessionStorage.getItem(SELECTED_COURSE_CACHE_KEY) || ''
+    );
     const [profile, setProfile] = useState(() => ({
         real_name: localStorage.getItem('real_name') || '',
         class_name: localStorage.getItem('class_name') || '',
@@ -265,6 +266,14 @@ function StudentCourseList({ username, onLogout }) {
 
     const selectedCourseExperiments = selectedCourse?.experiments || [];
 
+    useEffect(() => {
+        if (selectedCourseKey) {
+            sessionStorage.setItem(SELECTED_COURSE_CACHE_KEY, selectedCourseKey);
+            return;
+        }
+        sessionStorage.removeItem(SELECTED_COURSE_CACHE_KEY);
+    }, [selectedCourseKey]);
+
     const loadCoursesWithStatus = async () => {
         setLoading(true);
         try {
@@ -286,23 +295,9 @@ function StudentCourseList({ username, onLogout }) {
         }
         if (!groupedCourses.some((item) => item.key === selectedCourseKey)) {
             setSelectedCourseKey('');
+            sessionStorage.removeItem(SELECTED_COURSE_CACHE_KEY);
         }
     }, [groupedCourses, selectedCourseKey]);
-
-    useEffect(() => {
-        const shouldResetFromState = Boolean(location.state?.resetCourseView);
-        const shouldResetFromSession = sessionStorage.getItem(COURSE_OVERVIEW_RESET_KEY) === '1';
-        if (!shouldResetFromState && !shouldResetFromSession) {
-            return;
-        }
-
-        setSelectedCourseKey('');
-        sessionStorage.removeItem(COURSE_OVERVIEW_RESET_KEY);
-
-        if (shouldResetFromState) {
-            navigate('/', { replace: true });
-        }
-    }, [location.state, navigate]);
 
     const loadStudentProfileIfNeeded = async () => {
         if (!username) {
@@ -351,7 +346,6 @@ function StudentCourseList({ username, onLogout }) {
                     `${API_BASE_URL}/api/student-experiments/start/${courseData.course.id}?student_id=${username}`
                 );
             }
-            sessionStorage.setItem(COURSE_OVERVIEW_RESET_KEY, '1');
             navigate(`/workspace/${courseData.course.id}`);
         } catch (error) {
             console.error('Failed to start experiment:', error);

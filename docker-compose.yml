@@ -79,6 +79,10 @@ services:
       - training-uploads:/app/uploads
     environment:
       DATABASE_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-postgres}
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-experiment_manager}
+      PG_READ_PREFERRED: ${PG_READ_PREFERRED:-false}
+      AUTO_IMPORT_JSON_TO_PG: ${AUTO_IMPORT_JSON_TO_PG:-false}
       REDIS_URL: redis://redis:6379/0
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       # JupyterHub multi-tenant integration
@@ -259,5 +263,3 @@ volumes:
     name: training-shared-datasets
   shared-workspace:
     name: training-shared-workspace
-
-

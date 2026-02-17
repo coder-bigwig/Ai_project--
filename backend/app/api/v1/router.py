@@ -8,10 +8,12 @@ from .experiments import router as experiments_router
 from .jupyterhub import router as jupyterhub_router
 from .student import router as student_router
 from .submissions import router as submissions_router
+from .system import router as system_router
 from .teacher import router as teacher_router
 
 router = APIRouter()
 
+router.include_router(system_router)
 router.include_router(auth_router)
 router.include_router(jupyterhub_router)
 router.include_router(admin_router)
