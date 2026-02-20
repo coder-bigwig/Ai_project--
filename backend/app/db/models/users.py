@@ -1,6 +1,7 @@
 from datetime import datetime
+from enum import Enum as PyEnum
 
-from sqlalchemy import Boolean, DateTime, Index, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Index, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,6 +16,39 @@ class ClassroomORM(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     created_by: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AuthUserRole(str, PyEnum):
+    student = "student"
+    teacher = "teacher"
+    admin = "admin"
+
+
+class AuthUserORM(Base):
+    __tablename__ = "auth_users"
+    __table_args__ = (
+        Index("ix_auth_users_email_unique", "email", unique=True),
+        Index("ix_auth_users_username", "username"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    username: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    role: Mapped[AuthUserRole] = mapped_column(
+        SAEnum(AuthUserRole, name="auth_user_role", native_enum=False),
+        nullable=False,
+        default=AuthUserRole.student,
+        server_default=text("'student'"),
+    )
+    password_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default=text("''"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class UserORM(Base, TimestampVersionMixin):

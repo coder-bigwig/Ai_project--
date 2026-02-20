@@ -11,6 +11,7 @@ from .integrations import jupyterhub_integration as _jupyterhub_integration
 from .services import ai_service as _ai_service
 from .db.session import close_db_engine, get_db, init_db_engine, init_db_schema, storage_backend_name
 from .services.json_to_pg_migrator import has_any_core_data, migrate_from_upload_json
+from .services.auth_service import import_auth_users_from_upload_json
 from .services.postgres_state_loader import load_state_from_postgres
 from .storage_config import AUTO_IMPORT_JSON_TO_PG
 
@@ -105,6 +106,13 @@ async def startup_event():
                     summary = await migrate_from_upload_json(db=db)
                     await db.commit()
                     print(f"[storage] JSON -> PostgreSQL import summary: {summary}")
+                auth_summary = await import_auth_users_from_upload_json(
+                    db=db,
+                    password_hasher=_hash_password,
+                    default_password=DEFAULT_PASSWORD,
+                )
+                await db.commit()
+                print(f"[storage] JSON auth accounts -> PostgreSQL import summary: {auth_summary}")
 
             if backend_mode == "postgres":
                 summary = await load_state_from_postgres(main_module=sys.modules[__name__], db=db)
