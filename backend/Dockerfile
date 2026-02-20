@@ -5,6 +5,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     fastapi==0.104.0 \
     uvicorn[standard]==0.24.0 \
+    alembic==1.13.2 \
     sqlalchemy==2.0.23 \
     asyncpg==0.30.0 \
     psycopg2-binary==2.9.7 \
@@ -17,5 +18,8 @@ RUN pip install --no-cache-dir \
 
 COPY app/ /app/app/
 COPY init_db.py /app/init_db.py
+COPY alembic.ini /app/alembic.ini
+COPY alembic/ /app/alembic/
+COPY scripts/ /app/scripts/
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -41,7 +41,49 @@ c.JupyterHub.admin_access = True
 # Multi-tenant: each user gets a dedicated notebook container.
 from dockerspawner import DockerSpawner
 
-network_name = os.environ.get("DOCKER_NETWORK_NAME", "training-network")
+def _resolve_network_name() -> str:
+    configured = str(os.environ.get("DOCKER_NETWORK_NAME", "")).strip()
+    if configured:
+        return configured
+
+    try:
+        import docker
+
+        current_container = str(os.environ.get("HOSTNAME", "")).strip()
+        if current_container:
+            client = docker.from_env()
+            container = client.containers.get(current_container)
+            attached_networks = list(
+                (container.attrs.get("NetworkSettings", {}).get("Networks", {}) or {}).keys()
+            )
+            if attached_networks:
+                for attached_name in attached_networks:
+                    if attached_name.endswith("training-network"):
+                        return attached_name
+                return attached_networks[0]
+    except Exception as exc:
+        print(f"[network] failed to auto-detect compose network: {exc}")
+
+    return "training-network"
+
+
+network_name = _resolve_network_name()
+
+
+def _resolve_compose_project_name(resolved_network_name: str) -> str:
+    configured = str(os.environ.get("COMPOSE_PROJECT_NAME", "")).strip()
+    if configured:
+        return configured
+
+    suffix = "_training-network"
+    if resolved_network_name.endswith(suffix):
+        prefix = resolved_network_name[: -len(suffix)]
+        if prefix:
+            return prefix
+    return ""
+
+
+compose_project_name = _resolve_compose_project_name(network_name)
 notebook_image = os.environ.get("DOCKER_NOTEBOOK_IMAGE", "training-lab:latest")
 resource_policy_file = os.environ.get("RESOURCE_POLICY_FILE", "/srv/jupyterhub/user_resource_policy.json")
 teacher_accounts = set(
@@ -211,12 +253,21 @@ c.DockerSpawner.extra_host_config = {"network_mode": network_name}
 c.Spawner.pre_spawn_hook = _apply_user_resource_limits
 
 # Persist per-user work directory via a dedicated docker volume.
+if compose_project_name:
+    user_workspace_volume = f"{compose_project_name}_user-{{username}}"
+    course_materials_volume = f"{compose_project_name}_course-materials"
+    shared_datasets_volume = f"{compose_project_name}_shared-datasets"
+else:
+    user_workspace_volume = "training-user-{username}"
+    course_materials_volume = "training-course-materials"
+    shared_datasets_volume = "training-shared-datasets"
+
 c.DockerSpawner.remove = True
 c.DockerSpawner.volumes = {
-    "training-user-{username}": {"bind": "/home/jovyan/work", "mode": "rw"},
+    user_workspace_volume: {"bind": "/home/jovyan/work", "mode": "rw"},
     # Shared read-only materials.
-    "training-course-materials": {"bind": "/home/jovyan/course", "mode": "ro"},
-    "training-shared-datasets": {"bind": "/home/jovyan/datasets", "mode": "ro"},
+    course_materials_volume: {"bind": "/home/jovyan/course", "mode": "ro"},
+    shared_datasets_volume: {"bind": "/home/jovyan/datasets", "mode": "ro"},
 }
 
 # Root includes work + course + datasets. Land on work by default.
@@ -265,3 +316,4 @@ c.JupyterHub.tornado_settings = {
     # Respect X-Forwarded-* headers when running behind Nginx / TLS termination.
     "xheaders": True,
 }
+

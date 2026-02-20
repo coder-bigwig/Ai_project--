@@ -9,7 +9,6 @@
 services:
   nginx:
     image: nginx:alpine
-    container_name: training-nginx
     ports:
       - "${TRAINING_HTTP_PORT:-80}:80"
     volumes:
@@ -24,7 +23,6 @@ services:
 
   postgres:
     image: postgres:15
-    container_name: training-postgres
     environment:
       POSTGRES_USER: jupyterhub
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
@@ -42,7 +40,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: training-redis
     volumes:
       - redis-data:/data
     networks:
@@ -58,7 +55,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: training-frontend
     networks:
       - training-network
     restart: unless-stopped
@@ -67,7 +63,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: training-experiment-manager
     networks:
       - training-network
     volumes:
@@ -96,7 +91,6 @@ services:
     build:
       context: ./jupyterhub
       dockerfile: Dockerfile
-    container_name: training-jupyterhub
     volumes:
       # Required: spawn per-user containers
       - /var/run/docker.sock:/var/run/docker.sock
@@ -106,7 +100,6 @@ services:
       - ./jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
     environment:
       HUB_DB_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
-      DOCKER_NETWORK_NAME: training-network
       DOCKER_NOTEBOOK_IMAGE: training-lab:latest
       EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
 
@@ -131,7 +124,6 @@ services:
       context: .
       dockerfile: Dockerfile.student
     image: training-lab:latest
-    container_name: training-lab-builder
     command: echo "Student image built successfully"
     networks:
       - training-network
@@ -149,7 +141,6 @@ services:
     build:
       context: ./ai-service
       dockerfile: Dockerfile
-    container_name: training-ai-assistant
     ports:
       # Local-only by default (use SSH tunnel if needed)
       - "127.0.0.1:${AI_ASSISTANT_PORT:-8002}:8000"
@@ -166,7 +157,6 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: training-prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -181,7 +171,6 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    container_name: training-grafana
     volumes:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
@@ -198,24 +187,16 @@ services:
 
 networks:
   training-network:
-    name: training-network
     driver: bridge
 
 volumes:
   postgres-data:
-    name: training-postgres-data
   redis-data:
-    name: training-redis-data
   training-uploads:
-    name: training-uploads
   jupyterhub-data:
-    name: training-jupyterhub-data
   prometheus-data:
-    name: training-prometheus-data
   grafana-data:
-    name: training-grafana-data
   course-materials:
-    name: training-course-materials
   shared-datasets:
-    name: training-shared-datasets
+
 

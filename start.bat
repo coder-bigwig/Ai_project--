@@ -6,55 +6,64 @@ chcp 65001 >nul
 set PYTHONUTF8=1
 
 echo ========================================================
-echo       JupyterHub 实训平台 - 一键启动脚本
+echo       JupyterHub Training Platform - One Click Start
 echo ========================================================
 echo.
 
-:: 检查 Docker 是否运行
+REM Check Docker availability
 docker info >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [错误] Docker 未运行或未安装。请先启动 Docker Desktop。
+if errorlevel 1 (
+    echo [ERROR] Docker is not running or not installed. Start Docker Desktop first.
     pause
-    exit /b
+    exit /b 1
 )
 
-echo [1/4] 构建 Docker 镜像...
-docker-compose build
-if %errorlevel% neq 0 (
-    echo [错误] 镜像构建失败。
-    pause
-    exit /b
-)
-
-echo.
-echo [2/4] 启动服务...
-docker-compose up -d
-if %errorlevel% neq 0 (
-    echo [错误] 服务启动失败。
-    pause
-    exit /b
+echo [1/4] Build Docker images...
+set "USE_NO_BUILD=0"
+docker compose build
+if errorlevel 1 (
+    echo [WARN] Build failed. Falling back to start with --no-build.
+    set "USE_NO_BUILD=1"
 )
 
 echo.
-echo [3/4] 等待服务初始化 (约 30 秒)...
+echo [2/4] Start services...
+if "%USE_NO_BUILD%"=="1" (
+    docker compose up -d --no-build
+) else (
+    docker compose up -d
+)
+if errorlevel 1 (
+    echo [ERROR] Service startup failed.
+    if "%USE_NO_BUILD%"=="1" (
+        echo [TIP] --no-build was used. Make sure required images already exist locally.
+    )
+    pause
+    exit /b 1
+)
+
+echo.
+echo [3/4] Wait for services to initialize (~30s)...
 timeout /t 30 /nobreak >nul
 
 echo.
-echo [4/4] 初始化数据库和示例数据...
-:: 这里我们通过执行后端容器中的脚本来初始化数据
-docker-compose exec -T experiment-manager python init_db.py
+echo [4/4] Initialize database and seed data...
+docker compose exec -T experiment-manager python init_db.py
+if errorlevel 1 (
+    echo [WARN] init_db.py failed. You can run it manually after startup.
+)
 
 echo.
 echo ========================================================
-echo               部署完成！
+echo                    Deployment Complete
 echo ========================================================
 echo.
-echo 请访问以下地址：
+echo Access URLs:
 echo.
-echo   - 统一入口: http://localhost:8080
-echo   - 实验管理 API: http://localhost:8001/docs
-echo   - AI 助手 API: http://localhost:8002/docs
-echo   - 监控面板 (Grafana): http://localhost:3001 (admin/admin)
+echo   - Unified Entry: http://localhost:8080
+echo   - Experiment Manager API: http://localhost:8001/docs
+echo   - AI Assistant API: http://localhost:8002/docs
+echo   - Grafana: http://localhost:3001  (admin/admin)
 echo.
-echo 按任意键关闭此窗口...
+echo Press any key to close...
 pause >nul

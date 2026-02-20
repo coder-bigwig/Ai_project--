@@ -14,7 +14,8 @@ class ExperimentService:
         self.main = main_module
         self.db = db
         self._enable_pg = use_postgres() and self.db is not None
-        self._enable_json_write = use_json_write()
+        # In pure postgres mode JSON registry is never a write target.
+        self._enable_json_write = use_json_write() and STORAGE_BACKEND != "postgres"
         self._prefer_pg_reads = self._enable_pg and (STORAGE_BACKEND == "postgres" or PG_READ_PREFERRED)
 
     @staticmethod
@@ -276,4 +277,3 @@ class ExperimentService:
 
 def build_experiment_service(main_module, db: Optional[AsyncSession] = None) -> ExperimentService:
     return ExperimentService(main_module=main_module, db=db)
-
