@@ -33,6 +33,11 @@ class ExperimentRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_by_creator(self, created_by: str) -> Sequence[ExperimentORM]:
+        stmt = select(ExperimentORM).where(ExperimentORM.created_by == created_by)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def update(self, record: ExperimentORM, payload: dict[str, Any]) -> ExperimentORM:
         for key, value in payload.items():
             setattr(record, key, value)

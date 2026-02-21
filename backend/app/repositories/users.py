@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ClassroomORM, UserORM
@@ -85,3 +85,16 @@ class UserRepository:
     async def list_classes(self) -> Sequence[ClassroomORM]:
         result = await self.db.execute(select(ClassroomORM))
         return list(result.scalars().all())
+
+    async def list_classes_by_creator(self, created_by: str) -> Sequence[ClassroomORM]:
+        stmt = select(ClassroomORM).where(ClassroomORM.created_by == created_by)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_class_by_name(self, class_name: str) -> ClassroomORM | None:
+        normalized_name = str(class_name or "").strip().lower()
+        if not normalized_name:
+            return None
+        stmt = select(ClassroomORM).where(func.lower(ClassroomORM.name) == normalized_name)
+        result = await self.db.execute(stmt)
+        return result.scalars().first()

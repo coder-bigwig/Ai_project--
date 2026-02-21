@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..repositories import ExperimentRepository, StudentExperimentRepository, UserRepository
+from ..repositories import AuthUserRepository, ExperimentRepository, StudentExperimentRepository, UserRepository
+from .identity_service import ensure_student_user, normalize_text
 
 
 class StudentService:
     def __init__(self, main_module, db: Optional[AsyncSession] = None):
+        if db is None:
+            raise HTTPException(status_code=503, detail="PostgreSQL session unavailable")
         self.main = main_module
         self.db = db
 
     async def _commit(self):
-        if self.db is None:
-            return
         try:
             await self.db.commit()
         except Exception as exc:
@@ -92,49 +92,36 @@ class StudentService:
             teacher_comment=row.teacher_comment or "",
         )
 
+    async def _update_auth_password(self, username: str, new_hash: str):
+        auth_repo = AuthUserRepository(self.db)
+        auth_user = await auth_repo.get_by_login_identifier(username)
+        if auth_user is not None:
+            auth_user.password_hash = new_hash
+            auth_user.updated_at = datetime.now()
+
     async def get_student_courses_with_status(self, student_id: str):
-        normalized_student_id = self.main._normalize_text(student_id)
+        normalized_student_id = normalize_text(student_id)
         if not normalized_student_id:
             raise HTTPException(status_code=404, detail="学生不存在")
 
-        if self.db is None:
-            self.main._ensure_student(normalized_student_id)
-            student = self.main.students_db[normalized_student_id]
-            published_courses = [
-                exp
-                for exp in self.main.experiments_db.values()
-                if self.main._is_experiment_visible_to_student(exp, student)
-            ]
-            student_records = {
-                exp.experiment_id: exp
-                for exp in self.main.student_experiments_db.values()
-                if exp.student_id == normalized_student_id
-            }
-        else:
-            user_repo = UserRepository(self.db)
-            student_row = await user_repo.get_student_by_student_id(normalized_student_id)
-            if not student_row:
-                raise HTTPException(status_code=404, detail="学生不存在")
-            student = self._to_student_record(student_row)
+        student_row = await ensure_student_user(self.db, normalized_student_id)
+        student = self._to_student_record(student_row)
 
-            exp_rows = await ExperimentRepository(self.db).list_all()
-            published_courses = []
-            for row in exp_rows:
-                exp_model = self._to_experiment_model(row)
-                if self.main._is_experiment_visible_to_student(exp_model, student):
-                    published_courses.append(exp_model)
-                    self.main.experiments_db[exp_model.id] = exp_model
+        exp_rows = await ExperimentRepository(self.db).list_all()
+        visible_courses = []
+        for row in exp_rows:
+            exp_model = self._to_experiment_model(row)
+            if self.main._is_experiment_visible_to_student(exp_model, student):
+                visible_courses.append(exp_model)
 
-            se_rows = await StudentExperimentRepository(self.db).list_by_student(normalized_student_id)
-            student_records = {}
-            for row in se_rows:
-                item = self._to_student_experiment_model(row)
-                student_records[item.experiment_id] = item
-                self.main.student_experiments_db[item.id] = item
-            self.main.students_db[student.student_id] = student
+        se_rows = await StudentExperimentRepository(self.db).list_by_student(student.student_id)
+        student_records = {}
+        for row in se_rows:
+            item = self._to_student_experiment_model(row)
+            student_records[item.experiment_id] = item
 
         courses_with_status = []
-        for course in published_courses:
+        for course in visible_courses:
             record = student_records.get(course.id)
             courses_with_status.append(
                 {
@@ -149,27 +136,8 @@ class StudentService:
         return courses_with_status
 
     async def get_student_profile(self, student_id: str):
-        if self.db is None:
-            student = self.main.students_db.get(student_id)
-            if not student:
-                raise HTTPException(status_code=404, detail="学生不存在")
-            return {
-                "student_id": student.student_id,
-                "real_name": student.real_name,
-                "class_name": student.class_name,
-                "organization": student.organization,
-                "major": student.organization,
-                "admission_year": self.main._normalize_admission_year(student.admission_year),
-                "admission_year_label": self.main._format_admission_year_label(student.admission_year),
-                "security_question": self.main._normalize_security_question(student.security_question or ""),
-                "security_question_set": bool(self.main._normalize_security_question(student.security_question or "")),
-            }
-
-        row = await UserRepository(self.db).get_student_by_student_id(student_id)
-        if not row:
-            raise HTTPException(status_code=404, detail="学生不存在")
+        row = await ensure_student_user(self.db, student_id)
         student = self._to_student_record(row)
-        self.main.students_db[student.student_id] = student
         return {
             "student_id": student.student_id,
             "real_name": student.real_name,
@@ -183,7 +151,7 @@ class StudentService:
         }
 
     async def upsert_student_security_question(self, payload):
-        student_id = self.main._normalize_text(payload.student_id)
+        student_id = normalize_text(payload.student_id)
         question = self.main._normalize_security_question(payload.security_question or "")
         answer = payload.security_answer or ""
 
@@ -194,15 +162,6 @@ class StudentService:
         if len(self.main._normalize_security_answer(answer)) < 2:
             raise HTTPException(status_code=400, detail="密保答案至少2个字符")
 
-        if self.db is None:
-            student = self.main.students_db.get(student_id)
-            if not student:
-                raise HTTPException(status_code=404, detail="学生不存在")
-            student.security_question = question
-            student.security_answer_hash = self.main._hash_security_answer(answer)
-            student.updated_at = datetime.now()
-            return {"message": "密保问题已保存"}
-
         repo = UserRepository(self.db)
         student = await repo.get_student_by_student_id(student_id)
         if not student:
@@ -211,12 +170,10 @@ class StudentService:
         student.security_answer_hash = self.main._hash_security_answer(answer)
         student.updated_at = datetime.now()
         await self._commit()
-
-        self.main.students_db[student_id] = self._to_student_record(student)
         return {"message": "密保问题已保存"}
 
     async def change_student_password(self, payload):
-        student_id = self.main._normalize_text(payload.student_id)
+        student_id = normalize_text(payload.student_id)
         old_password = payload.old_password or ""
         new_password = payload.new_password or ""
 
@@ -227,16 +184,6 @@ class StudentService:
         if old_password == new_password:
             raise HTTPException(status_code=400, detail="新密码不能与旧密码相同")
 
-        if self.db is None:
-            student = self.main.students_db.get(student_id)
-            if not student:
-                raise HTTPException(status_code=404, detail="学生不存在")
-            if student.password_hash != self.main._hash_password(old_password):
-                raise HTTPException(status_code=401, detail="旧密码错误")
-            student.password_hash = self.main._hash_password(new_password)
-            student.updated_at = datetime.now()
-            return {"message": "密码修改成功"}
-
         repo = UserRepository(self.db)
         student = await repo.get_student_by_student_id(student_id)
         if not student:
@@ -244,12 +191,14 @@ class StudentService:
         if student.password_hash != self.main._hash_password(old_password):
             raise HTTPException(status_code=401, detail="旧密码错误")
 
-        student.password_hash = self.main._hash_password(new_password)
+        new_hash = self.main._hash_password(new_password)
+        student.password_hash = new_hash
         student.updated_at = datetime.now()
+        await self._update_auth_password(student.username or student.student_id, new_hash)
         await self._commit()
-        self.main.students_db[student_id] = self._to_student_record(student)
         return {"message": "密码修改成功"}
 
 
 def build_student_service(main_module, db: Optional[AsyncSession] = None) -> StudentService:
     return StudentService(main_module=main_module, db=db)
+

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...db.session import get_db
 from ...repositories.experiments import ExperimentRepository
 from ...repositories.users import UserRepository
+from ...services.identity_service import normalize_text, resolve_user_role
 
 
 def _get_main_module():
@@ -76,25 +77,26 @@ async def get_jupyterhub_auto_login_url(
 ):
     """Return a tokenized JupyterLab URL so portal users don't need a second Hub login."""
     main = _get_main_module()
-    user = main._normalize_text(username)
+    user = normalize_text(username)
     if not user:
         raise HTTPException(status_code=400, detail="username不能为空")
 
     target_experiment = None
     notebook_relpath = None
-    normalized_experiment_id = main._normalize_text(experiment_id)
+    normalized_experiment_id = normalize_text(experiment_id)
     if normalized_experiment_id:
         exp_row = await ExperimentRepository(db).get(normalized_experiment_id)
         if not exp_row:
             raise HTTPException(status_code=404, detail="实验不存在")
         target_experiment = _to_experiment_model(main, exp_row)
 
-        if not (main.is_teacher(user) or main.is_admin(user)):
+        role = await resolve_user_role(db, user)
+        if role not in {"teacher", "admin"}:
             user_repo = UserRepository(db)
             student_row = await user_repo.get_student_by_student_id(user)
             if student_row is None:
                 student_row = await user_repo.get_by_username(user)
-            if student_row is None or main._normalize_text(student_row.role).lower() != "student":
+            if student_row is None or normalize_text(student_row.role).lower() != "student":
                 raise HTTPException(status_code=404, detail="学生不存在")
 
             student = _to_student_record(main, student_row)

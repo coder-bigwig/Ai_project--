@@ -79,15 +79,9 @@ async def download_attachment_word(
     db: Optional[AsyncSession] = Depends(get_db),
 ):
     service = build_attachment_service(main_module=main, db=db)
-    att = await service.get_attachment(attachment_id=attachment_id)
-    if not os.path.exists(att.file_path):
+    target_attachment = await service.find_paired_word_attachment(attachment_id=attachment_id)
+    if not os.path.exists(target_attachment.file_path):
         raise HTTPException(status_code=404, detail="attachment file not found")
-
-    target_attachment = att
-    if main._is_pdf_attachment(att):
-        paired_word = main._find_paired_word_attachment(att)
-        if paired_word is not None:
-            target_attachment = paired_word
 
     lower_filename = target_attachment.filename.lower()
     if lower_filename.endswith(".docx"):

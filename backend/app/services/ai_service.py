@@ -21,8 +21,6 @@ except Exception:
 from ..config import (
     DEFAULT_AI_SHARED_CONFIG,
     AI_RESPONSE_STYLE_RULES,
-    AI_SHARED_CONFIG_FILE,
-    AI_CHAT_HISTORY_FILE,
     AI_CHAT_HISTORY_MAX_MESSAGES,
     AI_CHAT_HISTORY_MAX_MESSAGE_CHARS,
     AI_CONTEXT_MAX_HISTORY_MESSAGES,
@@ -140,26 +138,20 @@ def _normalize_ai_shared_config(raw: Optional[dict]) -> dict:
     }
 
 
+def _refresh_ai_shared_config_cache(raw: Optional[dict]) -> dict:
+    normalized = dict(DEFAULT_AI_SHARED_CONFIG)
+    normalized.update(_normalize_ai_shared_config(raw))
+    ai_shared_config_db.clear()
+    ai_shared_config_db.update(normalized)
+    return normalized
+
+
 def _save_ai_shared_config():
-    tmp_path = f"{AI_SHARED_CONFIG_FILE}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as file_obj:
-        json.dump(ai_shared_config_db, file_obj, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, AI_SHARED_CONFIG_FILE)
+    _refresh_ai_shared_config_cache(ai_shared_config_db)
 
 
 def _load_ai_shared_config():
-    ai_shared_config_db.clear()
-    ai_shared_config_db.update(DEFAULT_AI_SHARED_CONFIG)
-
-    if not os.path.exists(AI_SHARED_CONFIG_FILE):
-        return
-
-    try:
-        with open(AI_SHARED_CONFIG_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj) or {}
-        ai_shared_config_db.update(_normalize_ai_shared_config(payload))
-    except Exception as exc:
-        print(f"Failed to load ai shared config: {exc}")
+    _refresh_ai_shared_config_cache(None)
 
 
 def _normalize_chat_history_message(raw: Optional[dict]) -> Optional[Dict[str, str]]:
@@ -196,33 +188,12 @@ def _save_ai_chat_history():
         if not normalized_username:
             continue
         payload[normalized_username] = _normalize_chat_history_items(items)
-
-    tmp_path = f"{AI_CHAT_HISTORY_FILE}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as file_obj:
-        json.dump(payload, file_obj, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, AI_CHAT_HISTORY_FILE)
+    ai_chat_history_db.clear()
+    ai_chat_history_db.update(payload)
 
 
 def _load_ai_chat_history():
     ai_chat_history_db.clear()
-    if not os.path.exists(AI_CHAT_HISTORY_FILE):
-        return
-
-    try:
-        with open(AI_CHAT_HISTORY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj) or {}
-    except Exception as exc:
-        print(f"Failed to load ai chat history: {exc}")
-        return
-
-    if not isinstance(payload, dict):
-        return
-
-    for username, items in payload.items():
-        normalized_username = _normalize_text(username)
-        if not normalized_username:
-            continue
-        ai_chat_history_db[normalized_username] = _normalize_chat_history_items(items)
 
 
 def _get_ai_chat_history(username: str) -> List[Dict[str, str]]:

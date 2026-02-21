@@ -1,7 +1,10 @@
 from .attachments import AttachmentRepository
 from .courses import CourseRepository
+from .kv_store import KVStoreRepository
+from .operation_logs import OperationLogRepository
 from .password_reset_repository import PasswordResetRepository
 from .experiments import ExperimentRepository
+from .resources import ResourceRepository
 from .security import PasswordHashRepository, SecurityQuestionRepository
 from .student_experiments import StudentExperimentRepository
 from .submission_pdfs import SubmissionPdfRepository
@@ -14,8 +17,11 @@ __all__ = [
     "AuthUserRepository",
     "CourseRepository",
     "ExperimentRepository",
+    "KVStoreRepository",
+    "OperationLogRepository",
     "PasswordResetRepository",
     "PasswordHashRepository",
+    "ResourceRepository",
     "SecurityQuestionRepository",
     "StudentExperimentRepository",
     "SubmissionPdfRepository",

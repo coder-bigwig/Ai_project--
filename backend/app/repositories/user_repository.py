@@ -86,3 +86,22 @@ class AuthUserRepository:
                 value = self._normalize_text(value) or None
             setattr(record, key, value)
         return record, created
+
+    async def list_all(self) -> list[AuthUserORM]:
+        result = await self.db.execute(select(AuthUserORM))
+        return list(result.scalars().all())
+
+    async def list_by_role(self, role: str) -> list[AuthUserORM]:
+        normalized = self._normalize_text(role).lower()
+        if not normalized:
+            return []
+        stmt = select(AuthUserORM).where(AuthUserORM.role == normalized)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def delete_by_username(self, username: str) -> bool:
+        record = await self.get_by_username(username)
+        if record is None:
+            return False
+        await self.db.delete(record)
+        return True

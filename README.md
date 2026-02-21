@@ -221,3 +221,13 @@ docker compose -f docker-compose.server.yml down
 - Legacy `/app/uploads/*.json` files are not used as runtime data sources.
 - If you need one-time import from old JSON registries, run manually:
   - `docker compose exec -T experiment-manager python -m app.scripts.migrate_json_to_pg --force`
+
+## PostgreSQL Runtime Notes (2026-02-21)
+
+- Runtime authority is PostgreSQL only. `state.py` dicts are no longer used as business source of truth.
+- FastAPI startup only does DB connectivity check + schema creation (`create_all`); it does not auto-seed sample business data.
+- JupyterHub resource quota policy is read from PostgreSQL key `app_kv_store.resource_policy` (not JSON file).
+- Offline JSON import remains available:
+  - `docker compose exec -T experiment-manager python -m app.scripts.migrate_json_to_pg --force`
+- PostgreSQL self-check script:
+  - `docker compose exec -T experiment-manager python -m app.scripts.postgres_self_check`

@@ -14,12 +14,12 @@ from ..repositories import AttachmentRepository, ExperimentRepository
 
 class AttachmentService:
     def __init__(self, main_module, db: Optional[AsyncSession] = None):
+        if db is None:
+            raise HTTPException(status_code=503, detail="PostgreSQL session unavailable")
         self.main = main_module
         self.db = db
 
     async def _commit(self):
-        if self.db is None:
-            return
         try:
             await self.db.commit()
         except Exception as exc:
@@ -39,29 +39,6 @@ class AttachmentService:
         )
 
     async def upload_attachments(self, experiment_id: str, files: list[UploadFile]):
-        if self.db is None:
-            if experiment_id not in self.main.experiments_db:
-                raise HTTPException(status_code=404, detail="实验不存在")
-            uploaded = []
-            for file in files:
-                att_id = str(uuid.uuid4())
-                safe_filename = file.filename.replace(" ", "_")
-                file_path = os.path.join(self.main.UPLOAD_DIR, f"{att_id}_{safe_filename}")
-                with open(file_path, "wb") as buffer:
-                    shutil.copyfileobj(file.file, buffer)
-                attachment = self.main.Attachment(
-                    id=att_id,
-                    experiment_id=experiment_id,
-                    filename=file.filename,
-                    file_path=file_path,
-                    content_type=file.content_type or "application/octet-stream",
-                    size=os.path.getsize(file_path),
-                    created_at=datetime.now(),
-                )
-                self.main.attachments_db[att_id] = attachment
-                uploaded.append(attachment)
-            return uploaded
-
         experiment = await ExperimentRepository(self.db).get(experiment_id)
         if not experiment:
             raise HTTPException(status_code=404, detail="实验不存在")
@@ -104,34 +81,51 @@ class AttachmentService:
                         pass
             raise HTTPException(status_code=500, detail=f"保存附件失败: {exc}") from exc
 
-        for item in uploaded:
-            self.main.attachments_db[item.id] = item
         return uploaded
 
     async def list_attachments(self, experiment_id: str):
-        if self.db is None:
-            return [att for att in self.main.attachments_db.values() if att.experiment_id == experiment_id]
-
         rows = await AttachmentRepository(self.db).list_by_experiment(experiment_id)
-        items = [self._to_model(self.main, row) for row in rows]
-        for item in items:
-            self.main.attachments_db[item.id] = item
-        return items
+        return [self._to_model(self.main, row) for row in rows]
 
     async def get_attachment(self, attachment_id: str):
-        if self.db is None:
-            item = self.main.attachments_db.get(attachment_id)
-            if not item:
-                raise HTTPException(status_code=404, detail="附件不存在")
-            return item
-
         row = await AttachmentRepository(self.db).get(attachment_id)
         if not row:
             raise HTTPException(status_code=404, detail="附件不存在")
-        item = self._to_model(self.main, row)
-        self.main.attachments_db[item.id] = item
-        return item
+        return self._to_model(self.main, row)
+
+    async def find_paired_word_attachment(self, attachment_id: str):
+        row = await AttachmentRepository(self.db).get(attachment_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="附件不存在")
+
+        lower_filename = row.filename.lower()
+        is_pdf = row.content_type == "application/pdf" or lower_filename.endswith(".pdf")
+        if not is_pdf:
+            return self._to_model(self.main, row)
+
+        base_name = os.path.splitext(row.filename)[0]
+        candidates = await AttachmentRepository(self.db).list_by_experiment(row.experiment_id)
+        matched = []
+        for item in candidates:
+            item_base = os.path.splitext(item.filename)[0]
+            item_lower = item.filename.lower()
+            if item.id == row.id:
+                continue
+            if item_base != base_name:
+                continue
+            if not (item_lower.endswith(".docx") or item_lower.endswith(".doc")):
+                continue
+            if not os.path.exists(item.file_path):
+                continue
+            matched.append(item)
+
+        if not matched:
+            return self._to_model(self.main, row)
+
+        matched.sort(key=lambda item: 0 if item.filename.lower().endswith(".docx") else 1)
+        return self._to_model(self.main, matched[0])
 
 
 def build_attachment_service(main_module, db: Optional[AsyncSession] = None) -> AttachmentService:
     return AttachmentService(main_module=main_module, db=db)
+

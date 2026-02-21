@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from ..storage_config import DATABASE_URL, POSTGRES_SCHEMA, STORAGE_BACKEND
+from ..storage_config import DATABASE_URL, POSTGRES_SCHEMA
 
 _engine: Optional[AsyncEngine] = None
 _session_maker: Optional[async_sessionmaker[AsyncSession]] = None
@@ -76,7 +76,7 @@ def is_postgres_ready() -> bool:
 
 
 def storage_backend_name() -> str:
-    return STORAGE_BACKEND
+    return "postgres"
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

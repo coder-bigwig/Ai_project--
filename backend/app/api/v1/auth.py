@@ -1,5 +1,4 @@
-﻿from datetime import datetime
-from typing import Optional
+﻿from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,6 +8,8 @@ from ...db.session import get_db
 from ...repositories.security import SecurityQuestionRepository
 from ...repositories.users import UserRepository
 from ...services.auth_service import AuthService
+from ...services.identity_service import normalize_text, resolve_user_role
+from ...services.operation_log_service import append_operation_log
 
 router = APIRouter()
 
@@ -42,7 +43,7 @@ async def _postgres_login_or_none(main, db: AsyncSession, username: str, passwor
     if auth_user is None:
         return None
 
-    account_username = main._normalize_text(auth_user.username or auth_user.email)
+    account_username = normalize_text(auth_user.username or auth_user.email)
     role = _role_value(auth_user.role).lower()
     if role in {"admin", "teacher"}:
         return {
@@ -60,8 +61,8 @@ async def _postgres_login_or_none(main, db: AsyncSession, username: str, passwor
         return None
 
     security_question_set = bool(main._normalize_security_question(student.security_question or ""))
-    student_username = main._normalize_text(student.username or student.student_id or account_username)
-    student_id = main._normalize_text(student.student_id or student_username)
+    student_username = normalize_text(student.username or student.student_id or account_username)
+    student_id = normalize_text(student.student_id or student_username)
     return {
         "username": student_username,
         "role": "student",
@@ -77,17 +78,19 @@ async def _postgres_login_or_none(main, db: AsyncSession, username: str, passwor
     }
 
 
-def _append_reset_password_log(main, username: str, role: str):
-    normalized_role = main._normalize_text(role).lower()
+async def _append_reset_password_log(db: AsyncSession, username: str, role: str):
+    normalized_role = normalize_text(role).lower()
     if normalized_role in {"teacher", "admin"}:
-        main._append_operation_log(
+        await append_operation_log(
+            db,
             operator=username,
             action="accounts.reset_password_with_security",
             target=username,
             detail="教师/管理员通过密保重置密码",
         )
         return
-    main._append_operation_log(
+    await append_operation_log(
+        db,
         operator=username,
         action="students.reset_password_with_security",
         target=username,
@@ -102,7 +105,7 @@ async def login(
 ):
     """统一登录入口"""
     main = _get_main_module()
-    username = main._normalize_text(payload.username)
+    username = normalize_text(payload.username)
     password = payload.password or ""
     if not username or not password:
         raise HTTPException(status_code=400, detail="用户名和密码不能为空")
@@ -116,7 +119,7 @@ async def login(
 @router.get("/api/auth/security-question")
 async def get_security_question(username: str, db: AsyncSession = Depends(get_db)):
     main = _get_main_module()
-    normalized_username = main._normalize_text(username)
+    normalized_username = normalize_text(username)
     if not normalized_username:
         raise HTTPException(status_code=400, detail="用户名不能为空")
 
@@ -124,7 +127,7 @@ async def get_security_question(username: str, db: AsyncSession = Depends(get_db
     auth_user = await auth_service.get_user_by_identifier(normalized_username)
 
     if auth_user is not None:
-        account_username = main._normalize_text(auth_user.username or auth_user.email or normalized_username)
+        account_username = normalize_text(auth_user.username or auth_user.email or normalized_username)
         role = _role_value(auth_user.role).lower()
         if role in {"teacher", "admin"}:
             sec_repo = SecurityQuestionRepository(db)
@@ -142,7 +145,7 @@ async def get_security_question(username: str, db: AsyncSession = Depends(get_db
     student = await user_repo.get_student_by_student_id(normalized_username)
     if student is None:
         student = await user_repo.get_by_username(normalized_username)
-    if student is None or main._normalize_text(student.role).lower() != "student":
+    if student is None or normalize_text(student.role).lower() != "student":
         raise HTTPException(status_code=404, detail="账号不存在")
 
     question = main._normalize_security_question(student.security_question or "")
@@ -157,7 +160,7 @@ async def reset_password_with_security_question(
     db: AsyncSession = Depends(get_db),
 ):
     main = _get_main_module()
-    normalized_username = main._normalize_text(payload.username)
+    normalized_username = normalize_text(payload.username)
     security_answer = payload.security_answer or ""
     new_password = payload.new_password or ""
 
@@ -175,85 +178,58 @@ async def reset_password_with_security_question(
     if auth_user is None:
         student_row = await user_repo.get_student_by_student_id(normalized_username)
         if student_row is not None:
-            resolved_username = main._normalize_text(student_row.username or student_row.student_id)
+            resolved_username = normalize_text(student_row.username or student_row.student_id)
             auth_user = await service.get_user_by_identifier(resolved_username)
 
     if auth_user is None:
         raise HTTPException(status_code=404, detail="账号不存在")
 
-    account_username = main._normalize_text(auth_user.username or auth_user.email or normalized_username)
+    account_username = normalize_text(auth_user.username or auth_user.email or normalized_username)
     role = _role_value(auth_user.role).lower()
 
     if role in {"teacher", "admin"}:
         sec_row = await sec_repo.get_by_username(account_username)
         question = main._normalize_security_question(sec_row.question if sec_row else "")
-        answer_hash = main._normalize_text(sec_row.answer_hash if sec_row else "")
+        answer_hash = normalize_text(sec_row.answer_hash if sec_row else "")
         if not question or not answer_hash:
             raise HTTPException(status_code=400, detail="该账号未设置密保问题")
         if not main._verify_security_answer(answer_hash, security_answer):
             raise HTTPException(status_code=401, detail="密保答案错误")
-        student_id = None
     else:
         if student_row is None:
             student_row = await user_repo.get_by_username(account_username)
         if student_row is None:
             student_row = await user_repo.get_student_by_student_id(account_username)
-        if student_row is None or main._normalize_text(student_row.role).lower() != "student":
+        if student_row is None or normalize_text(student_row.role).lower() != "student":
             raise HTTPException(status_code=404, detail="账号不存在")
 
         question = main._normalize_security_question(student_row.security_question or "")
-        answer_hash = main._normalize_text(student_row.security_answer_hash or "")
+        answer_hash = normalize_text(student_row.security_answer_hash or "")
         if not question or not answer_hash:
             raise HTTPException(status_code=400, detail="该账号未设置密保问题")
         if not main._verify_security_answer(answer_hash, security_answer):
             raise HTTPException(status_code=401, detail="密保答案错误")
-        student_id = main._normalize_text(student_row.student_id or student_row.username)
 
     new_hash = main._hash_password(new_password)
     changed = await service.set_password(auth_user.id, new_hash)
     if changed is None:
         raise HTTPException(status_code=500, detail="密码重置失败")
 
+    await _append_reset_password_log(db, account_username, role if role in {"teacher", "admin"} else "student")
     try:
         await db.commit()
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="密码重置失败")
 
-    normalized_role = role if role in {"teacher", "admin"} else "student"
-    if normalized_role in {"teacher", "admin"}:
-        if new_hash == main._default_password_hash():
-            main.teacher_account_password_hashes_db.pop(account_username, None)
-        else:
-            main.teacher_account_password_hashes_db[account_username] = new_hash
-    elif student_id and student_id in main.students_db:
-        main.students_db[student_id].password_hash = new_hash
-        main.students_db[student_id].updated_at = datetime.now()
-
-    _append_reset_password_log(main, account_username, normalized_role)
     return {"message": "密码重置成功"}
 
 
 async def check_role(username: str, db: AsyncSession = Depends(get_db)):
     """检查用户角色"""
-    main = _get_main_module()
-    normalized = main._normalize_text(username)
-
-    service = AuthService(db=db, password_hasher=main._hash_password)
-    auth_user = await service.get_user_by_identifier(normalized)
-    if auth_user is not None:
-        role = _role_value(auth_user.role).lower() or "student"
-    elif main.is_admin(normalized):
-        role = "admin"
-    elif main.is_teacher(normalized):
-        role = "teacher"
-    else:
-        role = "student"
-
-    return {
-        "username": normalized,
-        "role": role,
-    }
+    normalized = normalize_text(username)
+    role = await resolve_user_role(db, normalized) or "student"
+    return {"username": normalized, "role": role}
 
 
 router.add_api_route("/api/check-role", check_role, methods=["GET"])

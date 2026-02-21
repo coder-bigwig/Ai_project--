@@ -1,6 +1,7 @@
-import json
 import os
 import re
+
+import psycopg2
 
 
 def _parse_accounts(raw: str, fallback: str) -> list:
@@ -85,7 +86,10 @@ def _resolve_compose_project_name(resolved_network_name: str) -> str:
 
 compose_project_name = _resolve_compose_project_name(network_name)
 notebook_image = os.environ.get("DOCKER_NOTEBOOK_IMAGE", "training-lab:latest")
-resource_policy_file = os.environ.get("RESOURCE_POLICY_FILE", "/srv/jupyterhub/user_resource_policy.json")
+experiment_manager_db_url = os.environ.get("EXPERIMENT_MANAGER_DATABASE_URL", os.environ.get("HUB_DB_URL", ""))
+experiment_manager_schema = str(os.environ.get("POSTGRES_SCHEMA", "experiment_manager") or "experiment_manager").strip()
+if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", experiment_manager_schema):
+    experiment_manager_schema = "experiment_manager"
 teacher_accounts = set(
     _parse_accounts(
         os.environ.get("TEACHER_ACCOUNTS"),
@@ -191,16 +195,22 @@ def _infer_role(username: str) -> str:
 
 def _load_resource_policy():
     payload = {"defaults": dict(default_role_limits), "overrides": {}}
-    if not os.path.exists(resource_policy_file):
+    if not experiment_manager_db_url:
         return payload
 
     try:
-        with open(resource_policy_file, "r", encoding="utf-8") as file_obj:
-            data = json.load(file_obj) or {}
-        if isinstance(data, dict):
-            payload.update(data)
+        with psycopg2.connect(experiment_manager_db_url) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f'SELECT value_json FROM \"{experiment_manager_schema}\".\"app_kv_store\" WHERE key = %s',
+                    ("resource_policy",),
+                )
+                row = cursor.fetchone()
+                data = row[0] if row else {}
+                if isinstance(data, dict):
+                    payload.update(data)
     except Exception as exc:
-        print(f"[resource-policy] failed to load policy: {exc}")
+        print(f"[resource-policy] failed to load policy from postgres: {exc}")
     return payload
 
 

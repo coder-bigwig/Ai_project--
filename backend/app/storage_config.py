@@ -1,8 +1,5 @@
 import os
 import re
-from typing import Literal
-
-StorageBackend = Literal["postgres"]
 
 _SCHEMA_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _FALSE_VALUES = {"0", "false", "no", "off", ""}
@@ -28,15 +25,6 @@ def _build_database_url() -> str:
     return f"postgresql://{auth}@{host}:{port}/{dbname}"
 
 
-def _normalize_backend(value: str) -> StorageBackend:
-    normalized = str(value or "").strip().lower()
-    if normalized and normalized != "postgres":
-        raise RuntimeError(
-            f"Unsupported STORAGE_BACKEND={value!r}. Only 'postgres' is allowed; json/hybrid modes are removed."
-        )
-    return "postgres"
-
-
 def _normalize_schema(value: str) -> str:
     schema = str(value or "experiment_manager").strip() or "experiment_manager"
     if not _SCHEMA_PATTERN.fullmatch(schema):
@@ -47,6 +35,11 @@ def _normalize_schema(value: str) -> str:
 
 
 def _enforce_removed_legacy_switches() -> None:
+    configured_backend = str(os.getenv("STORAGE_BACKEND") or "").strip().lower()
+    if configured_backend and configured_backend != "postgres":
+        raise RuntimeError(
+            f"Unsupported STORAGE_BACKEND={configured_backend!r}. Runtime storage is fixed to PostgreSQL."
+        )
     if _is_enabled(os.getenv("AUTO_IMPORT_JSON_TO_PG")):
         raise RuntimeError("AUTO_IMPORT_JSON_TO_PG is removed. Use offline migrate_json_to_pg script instead.")
     if _is_enabled(os.getenv("DOUBLE_WRITE_JSON")):
@@ -54,7 +47,7 @@ def _enforce_removed_legacy_switches() -> None:
 
 
 _enforce_removed_legacy_switches()
-STORAGE_BACKEND: StorageBackend = _normalize_backend(os.getenv("STORAGE_BACKEND", "postgres"))
+STORAGE_BACKEND: str = "postgres"
 DATABASE_URL: str = _build_database_url()
 POSTGRES_SCHEMA: str = _normalize_schema(os.getenv("POSTGRES_SCHEMA", "experiment_manager"))
 

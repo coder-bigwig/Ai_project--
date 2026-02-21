@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import StudentExperimentORM
@@ -73,3 +73,17 @@ class StudentExperimentRepository:
         if record is None:
             return await self.create(payload)
         return await self.update(record, payload)
+
+    async def delete(self, student_experiment_id: str) -> StudentExperimentORM | None:
+        record = await self.get(student_experiment_id)
+        if record is None:
+            return None
+        await self.db.delete(record)
+        return record
+
+    async def delete_by_student(self, student_id: str) -> int:
+        normalized = str(student_id or "").strip()
+        if not normalized:
+            return 0
+        result = await self.db.execute(delete(StudentExperimentORM).where(StudentExperimentORM.student_id == normalized))
+        return int(result.rowcount or 0)

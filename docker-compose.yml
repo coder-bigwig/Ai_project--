@@ -74,7 +74,6 @@ services:
       - training-uploads:/app/uploads
     environment:
       DATABASE_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
-      STORAGE_BACKEND: postgres
       POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-experiment_manager}
       REDIS_URL: redis://redis:6379/0
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
@@ -102,8 +101,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # JupyterHub 数据持久化
       - jupyterhub-data:/srv/jupyterhub
-      # Shared uploads volume for dynamic resource policy
-      - training-uploads:/srv/jupyterhub/shared-uploads
       # 挂载配置文件（开发模式推荐）
       - ./jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
     environment:
@@ -117,7 +114,6 @@ services:
       # Backend service token (for Hub API calls)
       EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
       JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
-      RESOURCE_POLICY_FILE: /srv/jupyterhub/shared-uploads/user_resource_policy.json
       ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-admin}
       TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
     networks:
