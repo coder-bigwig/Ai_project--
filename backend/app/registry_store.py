@@ -114,7 +114,27 @@ def is_teacher(username: str) -> bool:
     normalized = _normalize_text(username)
     if not normalized:
         return False
-    return normalized in TEACHER_ACCOUNTS or normalized in teachers_db
+    if normalized in TEACHER_ACCOUNTS:
+        return True
+
+    session_maker = _get_pg_sync_session_maker()
+    if session_maker is None:
+        return False
+    try:
+        with session_maker() as db:
+            row = (
+                db.execute(
+                    select(UserORM).where(
+                        UserORM.username == normalized,
+                        UserORM.role == "teacher",
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            return row is not None
+    except Exception:
+        return False
 
 
 def is_admin(username: str) -> bool:
@@ -452,10 +472,21 @@ def _all_teacher_accounts() -> List[str]:
         normalized = _normalize_text(username)
         if normalized:
             merged.add(normalized)
-    for username in teachers_db.keys():
-        normalized = _normalize_text(username)
-        if normalized:
-            merged.add(normalized)
+    session_maker = _get_pg_sync_session_maker()
+    if session_maker is not None:
+        try:
+            with session_maker() as db:
+                rows = (
+                    db.execute(select(UserORM).where(UserORM.role == "teacher"))
+                    .scalars()
+                    .all()
+                )
+                for row in rows:
+                    normalized = _normalize_text(row.username)
+                    if normalized:
+                        merged.add(normalized)
+        except Exception:
+            pass
     return sorted(merged)
 
 
@@ -778,22 +809,43 @@ def _managed_users() -> List[dict]:
             "organization": "",
         })
 
+    teacher_real_names: Dict[str, str] = {}
+    student_rows: List[UserORM] = []
+    session_maker = _get_pg_sync_session_maker()
+    if session_maker is not None:
+        try:
+            with session_maker() as db:
+                teacher_rows = (
+                    db.execute(select(UserORM).where(UserORM.role == "teacher"))
+                    .scalars()
+                    .all()
+                )
+                for row in teacher_rows:
+                    teacher_real_names[_normalize_text(row.username)] = _normalize_text(row.real_name)
+                student_rows = list(
+                    db.execute(select(UserORM).where(UserORM.role == "student"))
+                    .scalars()
+                    .all()
+                )
+        except Exception:
+            teacher_real_names = {}
+            student_rows = []
+
     for username in _all_teacher_accounts():
         normalized = _normalize_text(username)
         if not normalized or normalized in seen:
             continue
         seen.add(normalized)
-        teacher = teachers_db.get(normalized)
         users.append({
             "username": normalized,
             "role": "teacher",
-            "real_name": _normalize_text(getattr(teacher, "real_name", "")) or normalized,
+            "real_name": teacher_real_names.get(normalized, "") or normalized,
             "student_id": "",
             "class_name": "",
             "organization": "",
         })
 
-    for student in students_db.values():
+    for student in student_rows:
         normalized = _normalize_text(student.username or student.student_id)
         if not normalized or normalized in seen:
             continue
@@ -801,10 +853,10 @@ def _managed_users() -> List[dict]:
         users.append({
             "username": normalized,
             "role": "student",
-            "real_name": student.real_name,
-            "student_id": student.student_id,
-            "class_name": student.class_name,
-            "organization": student.organization,
+            "real_name": _normalize_text(student.real_name) or normalized,
+            "student_id": _normalize_text(student.student_id),
+            "class_name": _normalize_text(student.class_name),
+            "organization": _normalize_text(student.organization),
         })
 
     role_order = {"admin": 0, "teacher": 1, "student": 2}
@@ -945,13 +997,28 @@ def _is_admin_user(username: str) -> bool:
 
 def _list_accessible_classes(teacher_username: str) -> List[ClassRecord]:
     normalized_teacher = _normalize_text(teacher_username)
-    if _is_admin_user(normalized_teacher):
-        return list(classes_db.values())
-    return [
-        item
-        for item in classes_db.values()
-        if _normalize_text(item.created_by) == normalized_teacher
+    session_maker = _get_pg_sync_session_maker()
+    if session_maker is None:
+        return []
+
+    try:
+        with session_maker() as db:
+            rows = db.execute(select(ClassroomORM)).scalars().all()
+    except Exception:
+        return []
+
+    records = [
+        ClassRecord(
+            id=row.id,
+            name=row.name,
+            created_by=row.created_by,
+            created_at=row.created_at,
+        )
+        for row in rows
     ]
+    if _is_admin_user(normalized_teacher):
+        return records
+    return [item for item in records if _normalize_text(item.created_by) == normalized_teacher]
 
 
 def _student_owner_username(record: StudentRecord) -> str:
@@ -959,10 +1026,23 @@ def _student_owner_username(record: StudentRecord) -> str:
     if normalized_owner:
         return normalized_owner
 
+    session_maker = _get_pg_sync_session_maker()
+    if session_maker is None:
+        return ""
+    try:
+        with session_maker() as db:
+            rows = (
+                db.execute(select(ClassroomORM).where(ClassroomORM.name == record.class_name))
+                .scalars()
+                .all()
+            )
+    except Exception:
+        return ""
+
     matched_class_owners = {
         _normalize_text(item.created_by)
-        for item in classes_db.values()
-        if item.name == record.class_name and _normalize_text(item.created_by)
+        for item in rows
+        if _normalize_text(item.created_by)
     }
     if len(matched_class_owners) == 1:
         return next(iter(matched_class_owners))
@@ -978,7 +1058,29 @@ def _student_visible_to_teacher(record: StudentRecord, teacher_username: str) ->
 
 def _ensure_student(student_id: str):
     normalized_student_id = _normalize_text(student_id)
-    if not normalized_student_id or normalized_student_id not in students_db:
+    if not normalized_student_id:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    session_maker = _get_pg_sync_session_maker()
+    if session_maker is None:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    try:
+        with session_maker() as db:
+            row = (
+                db.execute(
+                    select(UserORM).where(
+                        UserORM.role == "student",
+                        (UserORM.student_id == normalized_student_id) | (UserORM.username == normalized_student_id),
+                    )
+                )
+                .scalars()
+                .first()
+            )
+    except Exception:
+        row = None
+
+    if row is None:
         raise HTTPException(status_code=404, detail="学生不存在")
 
 
@@ -1064,7 +1166,28 @@ def _is_known_user(username: str) -> bool:
     normalized = _normalize_text(username)
     if not normalized:
         return False
-    return is_teacher(normalized) or is_admin(normalized) or normalized in students_db
+    if is_teacher(normalized) or is_admin(normalized):
+        return True
+
+    session_maker = _get_pg_sync_session_maker()
+    if session_maker is None:
+        return False
+
+    try:
+        with session_maker() as db:
+            row = (
+                db.execute(
+                    select(UserORM).where(
+                        UserORM.role == "student",
+                        (UserORM.student_id == normalized) | (UserORM.username == normalized),
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            return row is not None
+    except Exception:
+        return False
 
 
 def _normalize_ai_shared_config(raw: Optional[dict]) -> dict:
@@ -2542,9 +2665,6 @@ class Attachment(BaseModel):
     content_type: str
     size: int
     created_at: datetime
-
-attachments_db = {}
-
 
 def _attachment_to_dict(record: Attachment) -> dict:
     return jsonable_encoder(record)

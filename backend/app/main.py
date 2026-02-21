@@ -6,6 +6,7 @@ from .config import APP_TITLE
 from .db.session import close_db_engine, init_db_engine, init_db_schema, storage_backend_name
 from .integrations import jupyterhub_integration as _jupyterhub_integration
 from .services import ai_service as _ai_service
+from .state import assert_legacy_state_write_blocked
 
 
 def _export_module_symbols(
@@ -57,6 +58,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """应用启动时仅初始化数据库连接和表结构。"""
+    assert_legacy_state_write_blocked()
     backend_mode = storage_backend_name()
     if backend_mode != "postgres":
         raise RuntimeError(f"Unsupported storage backend: {backend_mode!r}. Only 'postgres' is allowed.")
