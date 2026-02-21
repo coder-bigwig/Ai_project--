@@ -35,7 +35,7 @@ from .db.models import (
     UserORM,
 )
 from .integrations.jupyterhub_integration import _hub_user_state_map, _extract_server_state
-from .storage_config import DATABASE_URL, use_json_write, use_postgres
+from .storage_config import DATABASE_URL, use_postgres
 
 _pg_sync_engine = None
 _pg_sync_session_maker: Optional[sessionmaker] = None
@@ -669,53 +669,11 @@ def _normalize_resource_budget(raw: Optional[dict]) -> dict:
 
 
 def _save_resource_policy():
-    if use_json_write():
-        tmp_path = f"{RESOURCE_POLICY_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(resource_policy_db, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, RESOURCE_POLICY_FILE)
-
     _run_pg_write("resource_policy", lambda db: _upsert_kv(db, "resource_policy", deepcopy(resource_policy_db)))
 
 
 def _load_resource_policy():
-    resource_policy_db.clear()
-    resource_policy_db.update(_default_resource_policy_payload())
-    if not os.path.exists(RESOURCE_POLICY_FILE):
-        return
-
-    try:
-        with open(RESOURCE_POLICY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj) or {}
-    except Exception as exc:
-        print(f"Failed to load resource policy: {exc}")
-        return
-
-    defaults = {}
-    raw_defaults = payload.get("defaults", {}) if isinstance(payload, dict) else {}
-    for role in DEFAULT_RESOURCE_ROLE_LIMITS:
-        defaults[role] = _normalize_resource_quota(raw_defaults.get(role), role)
-
-    budget = _normalize_resource_budget(payload.get("budget", {}))
-    overrides = {}
-    raw_overrides = payload.get("overrides", {}) if isinstance(payload, dict) else {}
-    if isinstance(raw_overrides, dict):
-        for username, quota in raw_overrides.items():
-            normalized_username = _normalize_text(username)
-            if not normalized_username:
-                continue
-            role = _infer_user_role(normalized_username)
-            normalized_quota = _normalize_resource_quota(quota, role)
-            normalized_quota["updated_by"] = _normalize_text((quota or {}).get("updated_by")) or "system"
-            normalized_quota["updated_at"] = _normalize_text((quota or {}).get("updated_at")) or datetime.now().isoformat()
-            normalized_quota["note"] = _normalize_text((quota or {}).get("note"))[:200]
-            overrides[normalized_username] = normalized_quota
-
-    resource_policy_db.update({
-        "defaults": defaults,
-        "budget": budget,
-        "overrides": overrides,
-    })
+    return
 
 
 def _operation_log_to_dict(record: OperationLogEntry) -> dict:
@@ -726,12 +684,6 @@ def _operation_log_to_dict(record: OperationLogEntry) -> dict:
 
 def _save_operation_logs():
     payload = {"items": [_operation_log_to_dict(item) for item in operation_logs_db]}
-    if use_json_write():
-        tmp_path = f"{OPERATION_LOG_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, OPERATION_LOG_FILE)
-
     def _persist(db: Session):
         target_ids = set()
         for item in operation_logs_db:
@@ -757,22 +709,7 @@ def _save_operation_logs():
 
 
 def _load_operation_logs():
-    operation_logs_db.clear()
-    if not os.path.exists(OPERATION_LOG_FILE):
-        return
-
-    try:
-        with open(OPERATION_LOG_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj) or {}
-    except Exception as exc:
-        print(f"Failed to load operation logs: {exc}")
-        return
-
-    for item in payload.get("items", []):
-        try:
-            operation_logs_db.append(OperationLogEntry(**item))
-        except Exception as exc:
-            print(f"Invalid operation log skipped: {exc}")
+    return
 
 
 def _append_operation_log(operator: str, action: str, target: str, detail: str = "", success: bool = True):
@@ -1210,28 +1147,11 @@ def _normalize_ai_shared_config(raw: Optional[dict]) -> dict:
 
 
 def _save_ai_shared_config():
-    if use_json_write():
-        tmp_path = f"{AI_SHARED_CONFIG_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(ai_shared_config_db, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, AI_SHARED_CONFIG_FILE)
-
     _run_pg_write("ai_shared_config", lambda db: _upsert_kv(db, "ai_shared_config", deepcopy(ai_shared_config_db)))
 
 
 def _load_ai_shared_config():
-    ai_shared_config_db.clear()
-    ai_shared_config_db.update(DEFAULT_AI_SHARED_CONFIG)
-
-    if not os.path.exists(AI_SHARED_CONFIG_FILE):
-        return
-
-    try:
-        with open(AI_SHARED_CONFIG_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj) or {}
-        ai_shared_config_db.update(_normalize_ai_shared_config(payload))
-    except Exception as exc:
-        print(f"Failed to load ai shared config: {exc}")
+    return
 
 
 def _normalize_chat_history_message(raw: Optional[dict]) -> Optional[Dict[str, str]]:
@@ -1269,35 +1189,11 @@ def _save_ai_chat_history():
             continue
         payload[normalized_username] = _normalize_chat_history_items(items)
 
-    if use_json_write():
-        tmp_path = f"{AI_CHAT_HISTORY_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, AI_CHAT_HISTORY_FILE)
-
     _run_pg_write("ai_chat_history", lambda db: _upsert_kv(db, "ai_chat_history", payload))
 
 
 def _load_ai_chat_history():
-    ai_chat_history_db.clear()
-    if not os.path.exists(AI_CHAT_HISTORY_FILE):
-        return
-
-    try:
-        with open(AI_CHAT_HISTORY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj) or {}
-    except Exception as exc:
-        print(f"Failed to load ai chat history: {exc}")
-        return
-
-    if not isinstance(payload, dict):
-        return
-
-    for username, items in payload.items():
-        normalized_username = _normalize_text(username)
-        if not normalized_username:
-            continue
-        ai_chat_history_db[normalized_username] = _normalize_chat_history_items(items)
+    return
 
 
 def _get_ai_chat_history(username: str) -> List[Dict[str, str]]:
@@ -1408,12 +1304,6 @@ def _save_user_registry():
         "account_password_hashes": account_password_hashes,
         "account_security_questions": account_security_questions,
     }
-    if use_json_write():
-        tmp_path = f"{USER_REGISTRY_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, USER_REGISTRY_FILE)
-
     def _persist(db: Session):
         existing_users_by_username = {
             row.username: row
@@ -1516,87 +1406,7 @@ def _save_user_registry():
 
 
 def _load_user_registry():
-    classes_db.clear()
-    teachers_db.clear()
-    students_db.clear()
-    teacher_account_password_hashes_db.clear()
-    account_security_questions_db.clear()
-
-    if not os.path.exists(USER_REGISTRY_FILE):
-        return
-
-    try:
-        with open(USER_REGISTRY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj)
-    except Exception as exc:
-        print(f"Failed to load user registry: {exc}")
-        return
-
-    for item in payload.get("classes", []):
-        try:
-            record = ClassRecord(**item)
-            classes_db[record.id] = record
-        except Exception as exc:
-            print(f"Invalid class record skipped: {exc}")
-
-    for item in payload.get("teachers", []):
-        try:
-            record = TeacherRecord(**item)
-            normalized_username = _normalize_text(record.username)
-            if not normalized_username:
-                continue
-            record.username = normalized_username
-            if not record.real_name:
-                record.real_name = normalized_username
-            teachers_db[normalized_username] = record
-        except Exception as exc:
-            print(f"Invalid teacher record skipped: {exc}")
-
-    for item in payload.get("students", []):
-        try:
-            record = StudentRecord(**item)
-            if not record.admission_year:
-                record.admission_year = _infer_admission_year(record.student_id)
-            if not _normalize_text(record.created_by):
-                record.created_by = _student_owner_username(record)
-            students_db[record.student_id] = record
-        except Exception as exc:
-            print(f"Invalid student record skipped: {exc}")
-
-    raw_hashes = payload.get("account_password_hashes")
-    if isinstance(raw_hashes, dict):
-        for account, password_hash in raw_hashes.items():
-            normalized_account = _normalize_text(account)
-            normalized_hash = _normalize_text(password_hash).lower()
-            if not normalized_account:
-                continue
-            if not (is_teacher(normalized_account) or is_admin(normalized_account)):
-                continue
-            if not PASSWORD_HASH_PATTERN.fullmatch(normalized_hash):
-                continue
-            teacher_account_password_hashes_db[normalized_account] = normalized_hash
-
-    raw_security_questions = payload.get("account_security_questions")
-    if isinstance(raw_security_questions, dict):
-        for account, item in raw_security_questions.items():
-            normalized_account = _normalize_text(account)
-            if not normalized_account:
-                continue
-            if not (is_teacher(normalized_account) or is_admin(normalized_account)):
-                continue
-
-            raw_item = item if isinstance(item, dict) else {}
-            normalized_question = _normalize_security_question(raw_item.get("question") or "")
-            normalized_answer_hash = _normalize_text(raw_item.get("answer_hash") or "").lower()
-            if not normalized_question:
-                continue
-            if not PASSWORD_HASH_PATTERN.fullmatch(normalized_answer_hash):
-                continue
-
-            account_security_questions_db[normalized_account] = {
-                "question": normalized_question,
-                "answer_hash": normalized_answer_hash,
-            }
+    return
 
 
 def _resource_to_dict(record: ResourceFile) -> dict:
@@ -1609,12 +1419,6 @@ def _save_resource_registry():
     payload = {
         "items": [_resource_to_dict(item) for item in resource_files_db.values()],
     }
-    if use_json_write():
-        tmp_path = f"{RESOURCE_REGISTRY_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, RESOURCE_REGISTRY_FILE)
-
     def _persist(db: Session):
         target_ids = set()
         for item in payload.get("items", []):
@@ -1645,24 +1449,7 @@ def _save_resource_registry():
 
 
 def _load_resource_registry():
-    resource_files_db.clear()
-    if not os.path.exists(RESOURCE_REGISTRY_FILE):
-        return
-
-    try:
-        with open(RESOURCE_REGISTRY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj)
-    except Exception as exc:
-        print(f"Failed to load resource registry: {exc}")
-        return
-
-    for item in payload.get("items", []):
-        try:
-            record = ResourceFile(**item)
-            if os.path.exists(record.file_path):
-                resource_files_db[record.id] = record
-        except Exception as exc:
-            print(f"Invalid resource record skipped: {exc}")
+    return
 
 
 def _course_to_dict(record: CourseRecord) -> dict:
@@ -1676,12 +1463,6 @@ def _save_course_registry():
     payload = {
         "courses": [_course_to_dict(item) for item in courses_db.values()],
     }
-    if use_json_write():
-        tmp_path = f"{COURSE_REGISTRY_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, COURSE_REGISTRY_FILE)
-
     def _persist(db: Session):
         target_ids = set()
         for item in payload.get("courses", []):
@@ -1709,23 +1490,7 @@ def _save_course_registry():
 
 
 def _load_course_registry():
-    courses_db.clear()
-    if not os.path.exists(COURSE_REGISTRY_FILE):
-        return
-
-    try:
-        with open(COURSE_REGISTRY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj)
-    except Exception as exc:
-        print(f"Failed to load course registry: {exc}")
-        return
-
-    for item in payload.get("courses", []):
-        try:
-            record = CourseRecord(**item)
-            courses_db[record.id] = record
-        except Exception as exc:
-            print(f"Invalid course record skipped: {exc}")
+    return
 
 
 def _resolve_course_name(item: Experiment) -> str:
@@ -1873,12 +1638,6 @@ def _save_experiment_registry():
     payload = {
         "experiments": [_experiment_to_dict(item) for item in experiments_db.values()],
     }
-    if use_json_write():
-        tmp_path = f"{EXPERIMENT_REGISTRY_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, EXPERIMENT_REGISTRY_FILE)
-
     def _persist(db: Session):
         target_ids = set()
         for item in payload.get("experiments", []):
@@ -1918,24 +1677,7 @@ def _save_experiment_registry():
 
 
 def _load_experiment_registry():
-    experiments_db.clear()
-    if not os.path.exists(EXPERIMENT_REGISTRY_FILE):
-        return
-
-    try:
-        with open(EXPERIMENT_REGISTRY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj)
-    except Exception as exc:
-        print(f"Failed to load experiment registry: {exc}")
-        return
-
-    for item in payload.get("experiments", []):
-        try:
-            record = Experiment(**item)
-            if record.id:
-                experiments_db[record.id] = record
-        except Exception as exc:
-            print(f"Invalid experiment skipped: {exc}")
+    return
 
 
 def _get_experiment_by_notebook_path(notebook_path: str) -> Optional[Experiment]:
@@ -2345,17 +2087,6 @@ def _save_submission_registries():
         "items": [_submission_pdf_to_dict(item) for item in submission_pdfs_db.values()],
     }
 
-    if use_json_write():
-        tmp_submission_path = f"{STUDENT_EXPERIMENT_REGISTRY_FILE}.tmp"
-        with open(tmp_submission_path, "w", encoding="utf-8") as file_obj:
-            json.dump(submission_payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_submission_path, STUDENT_EXPERIMENT_REGISTRY_FILE)
-
-        tmp_pdf_path = f"{SUBMISSION_PDF_REGISTRY_FILE}.tmp"
-        with open(tmp_pdf_path, "w", encoding="utf-8") as file_obj:
-            json.dump(submission_pdf_payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_pdf_path, SUBMISSION_PDF_REGISTRY_FILE)
-
     def _persist(db: Session):
         target_submission_ids = set()
         for item in submission_payload.get("items", []):
@@ -2431,45 +2162,11 @@ def _save_submission_registries():
 
 
 def _load_submission_registry():
-    student_experiments_db.clear()
-    if not os.path.exists(STUDENT_EXPERIMENT_REGISTRY_FILE):
-        return
-
-    try:
-        with open(STUDENT_EXPERIMENT_REGISTRY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj) or {}
-    except Exception as exc:
-        print(f"Failed to load student experiment registry: {exc}")
-        return
-
-    for item in payload.get("items", []):
-        try:
-            record = StudentExperiment(**item)
-            if record.id:
-                student_experiments_db[record.id] = record
-        except Exception as exc:
-            print(f"Invalid student experiment skipped: {exc}")
+    return
 
 
 def _load_submission_pdf_registry():
-    submission_pdfs_db.clear()
-    if not os.path.exists(SUBMISSION_PDF_REGISTRY_FILE):
-        return
-
-    try:
-        with open(SUBMISSION_PDF_REGISTRY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj) or {}
-    except Exception as exc:
-        print(f"Failed to load submission PDF registry: {exc}")
-        return
-
-    for item in payload.get("items", []):
-        try:
-            record = StudentSubmissionPDF(**item)
-            if record.id and os.path.exists(record.file_path):
-                submission_pdfs_db[record.id] = record
-        except Exception as exc:
-            print(f"Invalid submission PDF skipped: {exc}")
+    return
 
 
 def _get_submission_pdfs(student_exp_id: str) -> List[StudentSubmissionPDF]:
@@ -2678,12 +2375,6 @@ def _save_attachment_registry():
             if os.path.exists(item.file_path)
         ],
     }
-    if use_json_write():
-        tmp_path = f"{ATTACHMENT_REGISTRY_FILE}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as file_obj:
-            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, ATTACHMENT_REGISTRY_FILE)
-
     def _persist(db: Session):
         target_ids = set()
         for item in payload.get("items", []):
@@ -2714,24 +2405,7 @@ def _save_attachment_registry():
 
 
 def _load_attachment_registry():
-    attachments_db.clear()
-    if not os.path.exists(ATTACHMENT_REGISTRY_FILE):
-        return
-
-    try:
-        with open(ATTACHMENT_REGISTRY_FILE, "r", encoding="utf-8") as file_obj:
-            payload = json.load(file_obj)
-    except Exception as exc:
-        print(f"Failed to load attachment registry: {exc}")
-        return
-
-    for item in payload.get("items", []):
-        try:
-            record = Attachment(**item)
-            if record.id and os.path.exists(record.file_path):
-                attachments_db[record.id] = record
-        except Exception as exc:
-            print(f"Invalid attachment skipped: {exc}")
+    return
 
 
 def _find_resource_by_filename(filename: str) -> Optional[ResourceFile]:

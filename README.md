@@ -206,7 +206,6 @@ docker compose -f docker-compose.server.yml down
 ## PostgreSQL-only storage mode (2026-02)
 
 - Runtime storage backend is fixed to PostgreSQL.
-- `STORAGE_BACKEND` only accepts `postgres`; `json/hybrid` are removed.
 - App startup will fail fast when PostgreSQL is unavailable (no JSON fallback).
 
 ### Data initialization
@@ -216,18 +215,10 @@ docker compose -f docker-compose.server.yml down
   1. `docker compose up -d --build`
   2. `docker compose exec -T experiment-manager python init_db.py`
 
-### Legacy JSON migration (manual only)
-
-- Legacy `/app/uploads/*.json` files are not used as runtime data sources.
-- If you need one-time import from old JSON registries, run manually:
-  - `docker compose exec -T experiment-manager python -m app.scripts.migrate_json_to_pg --force`
-
 ## PostgreSQL Runtime Notes (2026-02-21)
 
 - Runtime authority is PostgreSQL only. `state.py` dicts are no longer used as business source of truth.
 - FastAPI startup only does DB connectivity check + schema creation (`create_all`); it does not auto-seed sample business data.
 - JupyterHub resource quota policy is read from PostgreSQL key `app_kv_store.resource_policy` (not JSON file).
-- Offline JSON import remains available:
-  - `docker compose exec -T experiment-manager python -m app.scripts.migrate_json_to_pg --force`
 - PostgreSQL self-check script:
   - `docker compose exec -T experiment-manager python -m app.scripts.postgres_self_check`
