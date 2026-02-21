@@ -1,17 +1,79 @@
 ﻿from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ...db.session import get_db
+from ...repositories.experiments import ExperimentRepository
+from ...repositories.users import UserRepository
 
 
 def _get_main_module():
     from ... import main
+
     return main
 
 
 router = APIRouter()
 
 
-async def get_jupyterhub_auto_login_url(username: str, experiment_id: Optional[str] = None):
+def _to_experiment_model(main, row):
+    difficulty = row.difficulty or main.DifficultyLevel.BEGINNER.value
+    publish_scope = row.publish_scope or main.PublishScope.ALL.value
+    try:
+        difficulty = main.DifficultyLevel(difficulty)
+    except ValueError:
+        difficulty = main.DifficultyLevel.BEGINNER
+    try:
+        publish_scope = main.PublishScope(publish_scope)
+    except ValueError:
+        publish_scope = main.PublishScope.ALL
+
+    return main.Experiment(
+        id=row.id,
+        course_id=row.course_id,
+        course_name=row.course_name or "",
+        title=row.title,
+        description=row.description or "",
+        difficulty=difficulty,
+        tags=list(row.tags or []),
+        notebook_path=row.notebook_path or "",
+        resources=dict(row.resources or {}),
+        deadline=row.deadline,
+        created_at=row.created_at,
+        created_by=row.created_by,
+        published=bool(row.published),
+        publish_scope=publish_scope,
+        target_class_names=list(row.target_class_names or []),
+        target_student_ids=list(row.target_student_ids or []),
+    )
+
+
+def _to_student_record(main, row):
+    student_id = row.student_id or row.username
+    return main.StudentRecord(
+        student_id=student_id,
+        username=row.username,
+        real_name=row.real_name or student_id,
+        class_name=row.class_name or "",
+        admission_year=row.admission_year or "",
+        organization=row.organization or "",
+        phone=row.phone or "",
+        role="student",
+        created_by=row.created_by or "",
+        password_hash=row.password_hash or main._hash_password(main.DEFAULT_PASSWORD),
+        security_question=row.security_question or "",
+        security_answer_hash=row.security_answer_hash or "",
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+async def get_jupyterhub_auto_login_url(
+    username: str,
+    experiment_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
     """Return a tokenized JupyterLab URL so portal users don't need a second Hub login."""
     main = _get_main_module()
     user = main._normalize_text(username)
@@ -22,13 +84,20 @@ async def get_jupyterhub_auto_login_url(username: str, experiment_id: Optional[s
     notebook_relpath = None
     normalized_experiment_id = main._normalize_text(experiment_id)
     if normalized_experiment_id:
-        target_experiment = main.experiments_db.get(normalized_experiment_id)
-        if not target_experiment:
+        exp_row = await ExperimentRepository(db).get(normalized_experiment_id)
+        if not exp_row:
             raise HTTPException(status_code=404, detail="实验不存在")
+        target_experiment = _to_experiment_model(main, exp_row)
 
         if not (main.is_teacher(user) or main.is_admin(user)):
-            main._ensure_student(user)
-            student = main.students_db[user]
+            user_repo = UserRepository(db)
+            student_row = await user_repo.get_student_by_student_id(user)
+            if student_row is None:
+                student_row = await user_repo.get_by_username(user)
+            if student_row is None or main._normalize_text(student_row.role).lower() != "student":
+                raise HTTPException(status_code=404, detail="学生不存在")
+
+            student = _to_student_record(main, student_row)
             if not main._is_experiment_visible_to_student(target_experiment, student):
                 raise HTTPException(status_code=403, detail="该实验当前未发布给你")
 
@@ -48,7 +117,6 @@ async def get_jupyterhub_auto_login_url(username: str, experiment_id: Optional[s
     token = main._create_short_lived_user_token(user)
     if target_experiment and token:
         try:
-            # Ensure work directory exists in the user's server.
             dir_resp = main._user_contents_request(user, token, "GET", "work", params={"content": 0})
             if dir_resp.status_code == 404:
                 main._user_contents_request(user, token, "PUT", "work", json={"type": "directory"})
@@ -88,7 +156,6 @@ async def get_jupyterhub_auto_login_url(username: str, experiment_id: Optional[s
             print(f"JupyterHub auto-login notebook preparation error: {exc}")
 
     if not token:
-        # Fallback path: user may still have a valid Hub cookie from previous visits.
         return {
             "jupyter_url": main._build_user_lab_url(user, path=notebook_relpath),
             "tokenized": False,

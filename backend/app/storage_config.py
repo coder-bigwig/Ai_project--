@@ -2,16 +2,16 @@ import os
 import re
 from typing import Literal
 
-StorageBackend = Literal["json", "postgres", "hybrid"]
+StorageBackend = Literal["postgres"]
 
 _SCHEMA_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_FALSE_VALUES = {"0", "false", "no", "off", ""}
 
 
-def _parse_bool(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
+def _is_enabled(raw: str | None) -> bool:
     if raw is None:
-        return default
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+        return False
+    return str(raw).strip().lower() not in _FALSE_VALUES
 
 
 def _build_database_url() -> str:
@@ -30,31 +30,42 @@ def _build_database_url() -> str:
 
 def _normalize_backend(value: str) -> StorageBackend:
     normalized = str(value or "").strip().lower()
-    if normalized in {"json", "postgres", "hybrid"}:
-        return normalized  # type: ignore[return-value]
-    return "json"
+    if normalized and normalized != "postgres":
+        raise RuntimeError(
+            f"Unsupported STORAGE_BACKEND={value!r}. Only 'postgres' is allowed; json/hybrid modes are removed."
+        )
+    return "postgres"
 
 
 def _normalize_schema(value: str) -> str:
-    schema = str(value or "public").strip() or "public"
+    schema = str(value or "experiment_manager").strip() or "experiment_manager"
     if not _SCHEMA_PATTERN.fullmatch(schema):
-        return "public"
+        raise RuntimeError(
+            f"Invalid POSTGRES_SCHEMA={value!r}. Expected SQL identifier like 'experiment_manager'."
+        )
     return schema
 
 
+def _enforce_removed_legacy_switches() -> None:
+    if _is_enabled(os.getenv("AUTO_IMPORT_JSON_TO_PG")):
+        raise RuntimeError("AUTO_IMPORT_JSON_TO_PG is removed. Use offline migrate_json_to_pg script instead.")
+    if _is_enabled(os.getenv("DOUBLE_WRITE_JSON")):
+        raise RuntimeError("DOUBLE_WRITE_JSON is removed because JSON registry is no longer a runtime datastore.")
+
+
+_enforce_removed_legacy_switches()
 STORAGE_BACKEND: StorageBackend = _normalize_backend(os.getenv("STORAGE_BACKEND", "postgres"))
 DATABASE_URL: str = _build_database_url()
-POSTGRES_SCHEMA: str = _normalize_schema(os.getenv("POSTGRES_SCHEMA", "public"))
+POSTGRES_SCHEMA: str = _normalize_schema(os.getenv("POSTGRES_SCHEMA", "experiment_manager"))
 
-# Migration/rollout switches
-DOUBLE_WRITE_JSON: bool = _parse_bool("DOUBLE_WRITE_JSON", STORAGE_BACKEND == "hybrid")
-PG_READ_PREFERRED: bool = _parse_bool("PG_READ_PREFERRED", STORAGE_BACKEND == "postgres")
-AUTO_IMPORT_JSON_TO_PG: bool = _parse_bool("AUTO_IMPORT_JSON_TO_PG", False)
+# Kept as constants for backward-compatible imports in existing modules.
+DOUBLE_WRITE_JSON: bool = False
+PG_READ_PREFERRED: bool = True
 
 
 def use_postgres() -> bool:
-    return STORAGE_BACKEND in {"postgres", "hybrid"}
+    return True
 
 
 def use_json_write() -> bool:
-    return STORAGE_BACKEND == "json" or DOUBLE_WRITE_JSON or STORAGE_BACKEND == "hybrid"
+    return False

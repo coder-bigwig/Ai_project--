@@ -202,3 +202,22 @@ docker compose -f docker-compose.server.yml down
 
 - 必须设置强密码（`DB_PASSWORD`、`DUMMY_PASSWORD`、`EXPERIMENT_MANAGER_API_TOKEN`）。
 - 建议启用 HTTPS 反向代理。
+
+## PostgreSQL-only storage mode (2026-02)
+
+- Runtime storage backend is fixed to PostgreSQL.
+- `STORAGE_BACKEND` only accepts `postgres`; `json/hybrid` are removed.
+- App startup will fail fast when PostgreSQL is unavailable (no JSON fallback).
+
+### Data initialization
+
+- `backend/init_db.py` is a seed script. It seeds data by calling backend APIs, and data is persisted into PostgreSQL tables.
+- Typical flow in Docker:
+  1. `docker compose up -d --build`
+  2. `docker compose exec -T experiment-manager python init_db.py`
+
+### Legacy JSON migration (manual only)
+
+- Legacy `/app/uploads/*.json` files are not used as runtime data sources.
+- If you need one-time import from old JSON registries, run manually:
+  - `docker compose exec -T experiment-manager python -m app.scripts.migrate_json_to_pg --force`

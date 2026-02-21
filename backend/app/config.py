@@ -27,6 +27,8 @@ TEACHER_ACCOUNTS = _parse_account_list(
 ADMIN_ACCOUNTS = _parse_account_list(os.getenv("ADMIN_ACCOUNTS", "admin"))
 DEFAULT_PASSWORD = "123456"
 UPLOAD_DIR = "/app/uploads"
+# Deprecated runtime JSON registries. These files are only used as offline
+# import sources by `python -m app.scripts.migrate_json_to_pg`.
 USER_REGISTRY_FILE = os.path.join(UPLOAD_DIR, "user_registry.json")
 RESOURCE_REGISTRY_FILE = os.path.join(UPLOAD_DIR, "resource_registry.json")
 EXPERIMENT_REGISTRY_FILE = os.path.join(UPLOAD_DIR, "experiment_registry.json")
@@ -38,6 +40,19 @@ AI_SHARED_CONFIG_FILE = os.path.join(UPLOAD_DIR, "ai_shared_config.json")
 AI_CHAT_HISTORY_FILE = os.path.join(UPLOAD_DIR, "ai_chat_history.json")
 RESOURCE_POLICY_FILE = os.path.join(UPLOAD_DIR, "user_resource_policy.json")
 OPERATION_LOG_FILE = os.path.join(UPLOAD_DIR, "operation_log.json")
+LEGACY_REGISTRY_FILES = (
+    USER_REGISTRY_FILE,
+    RESOURCE_REGISTRY_FILE,
+    EXPERIMENT_REGISTRY_FILE,
+    COURSE_REGISTRY_FILE,
+    ATTACHMENT_REGISTRY_FILE,
+    STUDENT_EXPERIMENT_REGISTRY_FILE,
+    SUBMISSION_PDF_REGISTRY_FILE,
+    AI_SHARED_CONFIG_FILE,
+    AI_CHAT_HISTORY_FILE,
+    RESOURCE_POLICY_FILE,
+    OPERATION_LOG_FILE,
+)
 SEED_MARKER_FILE = os.path.join(UPLOAD_DIR, ".seed_defaults_v1")  # legacy filename (kept for backward compat)
 TEXT_PREVIEW_CHAR_LIMIT = 20000
 ALLOWED_RESOURCE_EXTENSIONS = {

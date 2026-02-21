@@ -1,3 +1,9 @@
+"""Offline migration helpers from legacy /app/uploads/*.json to PostgreSQL.
+
+This module is intentionally not called from FastAPI startup.
+Use `python -m app.scripts.migrate_json_to_pg` manually when needed.
+"""
+
 from __future__ import annotations
 
 import json
@@ -367,4 +373,3 @@ async def migrate_from_upload_json(db: AsyncSession, uploads_dir: str | None = N
     counters["kv_keys"] += 5
 
     return counters
-

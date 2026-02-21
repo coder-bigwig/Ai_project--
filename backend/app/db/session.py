@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from ..storage_config import DATABASE_URL, POSTGRES_SCHEMA, STORAGE_BACKEND, use_postgres
+from ..storage_config import DATABASE_URL, POSTGRES_SCHEMA, STORAGE_BACKEND
 
 _engine: Optional[AsyncEngine] = None
 _session_maker: Optional[async_sessionmaker[AsyncSession]] = None
@@ -27,25 +27,31 @@ async def init_db_engine(force: bool = False) -> bool:
     if _engine is not None and _session_maker is not None:
         return True
 
-    if not force and not use_postgres():
-        return False
     if not DATABASE_URL:
         return False
 
     async_url = _to_async_driver_url(DATABASE_URL)
-    _engine = create_async_engine(
+    engine = create_async_engine(
         async_url,
         pool_pre_ping=True,
         future=True,
     )
-    _session_maker = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        await engine.dispose()
+        return False
+
+    _engine = engine
+    _session_maker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     _postgres_ready = True
     return True
 
 
 async def init_db_schema() -> None:
     if _engine is None:
-        return
+        raise RuntimeError("PostgreSQL engine is not initialized.")
 
     from .base import Base
     from . import models  # noqa: F401
@@ -73,11 +79,9 @@ def storage_backend_name() -> str:
     return STORAGE_BACKEND
 
 
-async def get_db() -> AsyncGenerator[Optional[AsyncSession], None]:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     if _session_maker is None:
-        yield None
-        return
+        raise RuntimeError("PostgreSQL session factory is unavailable. Startup should fail fast.")
 
     async with _session_maker() as session:
         yield session
-

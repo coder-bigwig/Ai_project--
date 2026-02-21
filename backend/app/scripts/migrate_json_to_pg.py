@@ -34,7 +34,10 @@ async def _run(uploads_dir: str | None, force: bool) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Import /app/uploads/*.json registry data into PostgreSQL (idempotent upsert)."
+        description=(
+            "Offline one-time import: /app/uploads/*.json registry data into PostgreSQL "
+            "(idempotent upsert). Not executed during app startup."
+        )
     )
     parser.add_argument(
         "--uploads-dir",
@@ -64,4 +67,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

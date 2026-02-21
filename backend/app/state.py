@@ -1,3 +1,9 @@
+﻿"""Runtime in-memory caches.
+
+These containers are not authoritative storage. Source of truth is PostgreSQL.
+They may be rebuilt from PostgreSQL at startup and are kept only for fast local access.
+"""
+
 from typing import Dict, List
 
 from .config import DEFAULT_AI_SHARED_CONFIG
