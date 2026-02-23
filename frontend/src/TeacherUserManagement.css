@@ -308,15 +308,50 @@
 }
 
 .class-import-panel {
-    border: 1px solid #e6ebf1;
-    border-radius: 6px;
-    padding: 12px;
-    margin-bottom: 14px;
-    background: #f9fbff;
+    border: 1px solid #dfe6f1;
+    border-radius: 10px;
+    padding: 14px 14px 12px;
+    margin-bottom: 10px;
+    background: #f5f7fb;
 }
 
 .class-import-modal {
-    width: min(980px, 94vw);
+    width: min(860px, 92vw);
+    padding: 18px 20px 14px;
+}
+
+.class-import-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.class-import-title-row h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #1f2f46;
+}
+
+.class-import-close-btn {
+    border: none;
+    border-radius: 8px;
+    background: #3b9cf7;
+    color: #fff;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.class-import-close-btn:hover {
+    background: #66b1ff;
+}
+
+.class-import-close-btn:disabled {
+    background: #c0c4cc;
+    cursor: not-allowed;
 }
 
 .class-import-header {
@@ -326,8 +361,13 @@
     gap: 10px;
     flex-wrap: wrap;
     margin-bottom: 10px;
-    color: #606266;
-    font-size: 13px;
+    color: #475569;
+    font-size: 14px;
+}
+
+.class-import-header > span {
+    line-height: 1.45;
+    font-size: 14px;
 }
 
 .class-import-template-actions {
@@ -343,9 +383,18 @@
     flex-wrap: wrap;
 }
 
-.import-file-name {
-    margin-top: 10px;
+.class-import-input-row input[type="file"] {
     font-size: 13px;
+    color: #1f2937;
+}
+
+.class-import-input-row button {
+    min-width: 176px;
+}
+
+.import-file-name {
+    margin-top: 6px;
+    font-size: 14px;
     color: #606266;
 }
 

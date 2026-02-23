@@ -246,6 +246,73 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
         }
     };
 
+    const autoCreateOfferingsForClasses = useCallback(async (classNames) => {
+        let names = Array.from(
+            new Set(
+                (Array.isArray(classNames) ? classNames : [])
+                    .map((item) => String(item || '').trim())
+                    .filter(Boolean)
+            )
+        );
+        if (!normalizedCourseId) {
+            return { createdCount: 0, failed: [] };
+        }
+        // Fallback for older backend responses that don't return imported class names.
+        if (names.length === 0) {
+            try {
+                const classRes = await axios.get(`${studentApiBase}/classes`, {
+                    params: { teacher_username: username },
+                });
+                names = normalizeOptions(classRes.data)
+                    .map((item) => String(item?.value || '').trim())
+                    .filter(Boolean);
+            } catch (error) {
+                names = [];
+            }
+        }
+        if (names.length === 0) return { createdCount: 0, failed: [] };
+
+        const existingRes = await axios.get(`${API_BASE_URL}/api/teacher/offerings`, {
+            params: { teacher_username: username },
+        });
+        const existingClassNames = new Set(
+            normalizeOfferings(existingRes.data, normalizedCourseId)
+                .map((item) => String(item.className || '').trim())
+                .filter(Boolean)
+        );
+
+        let createdCount = 0;
+        const failed = [];
+        for (const className of names) {
+            if (existingClassNames.has(className)) continue;
+            try {
+                await axios.post(`${API_BASE_URL}/api/teacher/offerings`, {
+                    teacher_username: username,
+                    template_course_id: normalizedCourseId,
+                    class_name: className,
+                });
+                createdCount += 1;
+                existingClassNames.add(className);
+            } catch (error) {
+                const status = Number(error?.response?.status || 0);
+                if (status === 409) {
+                    existingClassNames.add(className);
+                    continue;
+                }
+                failed.push({
+                    className,
+                    reason: error?.response?.data?.detail || '生成课程码失败',
+                });
+            }
+        }
+
+        if (createdCount > 0) {
+            await refreshClassPanel();
+            notifyRosterChanged();
+        }
+        return { createdCount, failed };
+    }, [normalizedCourseId, notifyRosterChanged, refreshClassPanel, studentApiBase, username]);
+
     const handleImportStudents = async () => {
         if (!selectedFile) {
             alert('请先选择文件');
@@ -258,7 +325,13 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
                 params: { teacher_username: username },
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
-            setImportResult(res.data || null);
+            const payload = res.data || null;
+            setImportResult(payload);
+            const autoCreateResult = await autoCreateOfferingsForClasses(payload?.imported_class_names);
+            if (autoCreateResult.failed.length > 0) {
+                const firstFailed = autoCreateResult.failed[0];
+                alert(`部分班级课程码自动生成失败：${firstFailed.className}（${firstFailed.reason}）`);
+            }
             await loadStudents({
                 targetPage: 1,
                 targetKeyword: keyword,
@@ -266,6 +339,7 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
                 targetAdmissionYear: admissionYearFilter,
             });
             await loadClassAndYearOptions();
+            await refreshClassPanel();
             notifyRosterChanged();
         } catch (error) {
             alert(error.response?.data?.detail || '导入失败');
@@ -315,7 +389,13 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
                 params: { teacher_username: username },
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
-            setClassImportResult(res.data || null);
+            const payload = res.data || null;
+            setClassImportResult(payload);
+            const autoCreateResult = await autoCreateOfferingsForClasses(payload?.created_class_names);
+            if (autoCreateResult.failed.length > 0) {
+                const firstFailed = autoCreateResult.failed[0];
+                alert(`部分班级课程码自动生成失败：${firstFailed.className}（${firstFailed.reason}）`);
+            }
             setClassImportFile(null);
             await refreshClassPanel();
             await loadClassAndYearOptions();
@@ -544,9 +624,14 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
         }
     };
     const handleRefreshClassPanel = useCallback(async () => {
+        const autoCreateResult = await autoCreateOfferingsForClasses();
+        if (autoCreateResult.failed.length > 0) {
+            const firstFailed = autoCreateResult.failed[0];
+            alert(`部分班级课程码自动生成失败：${firstFailed.className}（${firstFailed.reason}）`);
+        }
         await refreshClassPanel();
         notifyRosterChanged();
-    }, [notifyRosterChanged, refreshClassPanel]);
+    }, [autoCreateOfferingsForClasses, notifyRosterChanged, refreshClassPanel]);
 
     if (!normalizedCourseId) {
     return <div className="user-placeholder">请先选择课程。</div>;
@@ -567,8 +652,6 @@ return (
                     ) : null}
                 </div>
                 <button onClick={handleRefreshClassPanel}>刷新班级</button>
-                <button onClick={() => handleDownloadTemplate('xlsx')}>下载模板（xlsx）</button>
-                <button onClick={() => handleDownloadTemplate('csv')}>下载模板（csv）</button>
                 <button onClick={() => { setShowImportModal(true); setSelectedFile(null); setImportResult(null); }}>导入学生</button>
             </div>
         </div>
@@ -706,13 +789,30 @@ return (
 
         {showImportModal ? (
             <div className="user-modal-overlay" onClick={() => setShowImportModal(false)}>
-                <div className="user-modal" onClick={(e) => e.stopPropagation()}>
-                    <h3>导入学生</h3>
-                    <input type="file" accept=".xlsx,.csv" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} />
-                    <div className="import-file-name">{selectedFile ? ('已选择：' + selectedFile.name) : '未选择文件'}</div>
-                    <div className="template-buttons">
-                        <button onClick={() => handleDownloadTemplate('xlsx')}>下载模板（xlsx）</button>
-                        <button onClick={() => handleDownloadTemplate('csv')}>下载模板（csv）</button>
+                <div className="user-modal class-import-modal student-import-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="class-import-title-row">
+                        <h3>导入学生</h3>
+                        <button
+                            type="button"
+                            className="class-import-close-btn"
+                            onClick={() => setShowImportModal(false)}
+                        >
+                            关闭
+                        </button>
+                    </div>
+                    <div className="class-import-panel">
+                        <div className="class-import-header">
+                            <span>批量导入格式：学号 / 姓名 / 入学年份 / 班级</span>
+                            <div className="class-import-template-actions">
+                                <button onClick={() => handleDownloadTemplate('xlsx')}>下载模板（xlsx）</button>
+                                <button onClick={() => handleDownloadTemplate('csv')}>下载模板（csv）</button>
+                            </div>
+                        </div>
+                        <div className="class-import-input-row">
+                            <input type="file" accept=".xlsx,.csv" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} />
+                            <button onClick={handleImportStudents}>开始导入</button>
+                        </div>
+                        <div className="import-file-name">{selectedFile ? ('已选择：' + selectedFile.name) : '未选择文件'}</div>
                     </div>
                     {importResult ? (
                         <div className="import-result">
@@ -735,37 +835,45 @@ return (
                             ) : null}
                         </div>
                     ) : null}
-                    <div className="user-modal-actions">
-                        <button onClick={() => setShowImportModal(false)}>取消</button>
-                        <button onClick={handleImportStudents}>开始导入</button>
-                    </div>
                 </div>
             </div>
         ) : null}
 
         {showClassImportModal ? (
             <div className="user-modal-overlay" onClick={() => setShowClassImportModal(false)}>
-                <div className="user-modal" onClick={(e) => e.stopPropagation()}>
-                    <h3>批量导入班级</h3>
-                    <div className="class-import-hint">
-                        <span>请先下载班级模板，填写必填项后再批量导入。</span>
-                        <div className="template-buttons">
-                            <button onClick={() => handleDownloadClassTemplate('xlsx')}>下载班级模板（xlsx）</button>
-                            <button onClick={() => handleDownloadClassTemplate('csv')}>下载班级模板（csv）</button>
-                        </div>
-                    </div>
-                    <div className="class-import-input-row">
-                        <input
-                            type="file"
-                            accept=".xlsx,.csv"
-                            onChange={(e) => setClassImportFile(e.target.files?.[0] || null)}
+                <div className="user-modal class-import-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="class-import-title-row">
+                        <h3>班级管理</h3>
+                        <button
+                            type="button"
+                            className="class-import-close-btn"
+                            onClick={() => setShowClassImportModal(false)}
                             disabled={importingClasses}
-                        />
-                        <button onClick={handleImportClasses} disabled={importingClasses}>
-                            {importingClasses ? '导入中...' : '上传并导入班级'}
+                        >
+                            关闭
                         </button>
                     </div>
-                    <div className="import-file-name">{classImportFile ? ('已选择：' + classImportFile.name) : '未选择班级导入文件'}</div>
+                    <div className="class-import-panel">
+                        <div className="class-import-header">
+                            <span>批量导入格式：入学年级 / 专业 / 班级</span>
+                            <div className="class-import-template-actions">
+                            <button onClick={() => handleDownloadClassTemplate('xlsx')}>下载班级模板（xlsx）</button>
+                            <button onClick={() => handleDownloadClassTemplate('csv')}>下载班级模板（csv）</button>
+                            </div>
+                        </div>
+                        <div className="class-import-input-row">
+                            <input
+                                type="file"
+                                accept=".xlsx,.csv"
+                                onChange={(e) => setClassImportFile(e.target.files?.[0] || null)}
+                                disabled={importingClasses}
+                            />
+                            <button onClick={handleImportClasses} disabled={importingClasses}>
+                                {importingClasses ? '导入中...' : '上传并导入班级'}
+                            </button>
+                        </div>
+                        <div className="import-file-name">{classImportFile ? ('已选择：' + classImportFile.name) : '未选择班级导入文件'}</div>
+                    </div>
                     {classImportResult ? (
                         <div className="import-result">
                             <p>总行数：{classImportResult.total_rows}</p>
@@ -786,9 +894,6 @@ return (
                             ) : null}
                         </div>
                     ) : null}
-                    <div className="user-modal-actions">
-                        <button onClick={() => setShowClassImportModal(false)} disabled={importingClasses}>关闭</button>
-                    </div>
                 </div>
             </div>
         ) : null}

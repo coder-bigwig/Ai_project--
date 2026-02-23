@@ -25,6 +25,7 @@ from ..repositories import (
     UserRepository,
 )
 from .identity_service import ensure_teacher_or_admin, normalize_text, resolve_user_role
+from .membership_consistency_service import reconcile_membership_consistency
 from .operation_log_service import append_operation_log
 
 
@@ -495,11 +496,13 @@ class TeacherService:
 
         now = datetime.now()
         seen_in_file = set()
+        imported_class_names = set()
         success_count = 0
         created_count = 0
         skipped_count = 0
         failed_count = 0
         errors = []
+        sync_candidate_student_ids = set()
 
         default_hash = self.main._hash_password(DEFAULT_PASSWORD)
 
@@ -580,8 +583,10 @@ class TeacherService:
                     created_count += 1
 
             canonical_student_id = normalize_text(student_row.student_id or student_row.username or student_id)
+            imported_class_names.add(class_name)
             existing_membership = await membership_repo.get_by_course_and_student(course.id, canonical_student_id)
             if existing_membership is not None:
+                sync_candidate_student_ids.add(canonical_student_id)
                 skipped_count += 1
                 errors.append({"row": row_number, "student_id": canonical_student_id, "reason": "already enrolled in this course"})
                 continue
@@ -596,14 +601,24 @@ class TeacherService:
                     "updated_at": now,
                 }
             )
+            sync_candidate_student_ids.add(canonical_student_id)
             success_count += 1
+
+        sync_result = await reconcile_membership_consistency(
+            self.db,
+            course_id=course.id,
+            target_student_ids=sorted(sync_candidate_student_ids),
+        )
 
         await append_operation_log(
             self.db,
             operator=normalized_teacher,
             action="courses.students.import",
             target=course.id,
-            detail=f"success={success_count}, created={created_count}, skipped={skipped_count}, failed={failed_count}",
+            detail=(
+                f"success={success_count}, created={created_count}, skipped={skipped_count}, failed={failed_count}, "
+                f"sync_changed={sync_result.get('changed_total', 0)}"
+            ),
         )
         await self._commit()
         return {
@@ -612,7 +627,9 @@ class TeacherService:
             "created_count": created_count,
             "skipped_count": skipped_count,
             "failed_count": failed_count,
+            "imported_class_names": sorted(imported_class_names),
             "errors": errors,
+            "sync_result": sync_result,
         }
 
     async def reset_course_student_password(self, course_id: str, student_id: str, teacher_username: str):

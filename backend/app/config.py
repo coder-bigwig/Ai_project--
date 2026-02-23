@@ -20,6 +20,18 @@ def _parse_account_list(raw: str) -> List[str]:
     return [item for item in parts if item]
 
 
+def _env_flag(name: str, default: str = "1") -> bool:
+    value = str(os.getenv(name, default) or "").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(str(os.getenv(name, str(default)) or "").strip())
+    except (TypeError, ValueError):
+        return default
+
+
 # 教师账号列表
 TEACHER_ACCOUNTS = _parse_account_list(
     os.getenv("TEACHER_ACCOUNTS", "teacher_001,teacher_002,teacher_003,teacher_004,teacher_005")
@@ -82,5 +94,14 @@ AI_SESSION_MAX_TOKENS = max(100, int(os.getenv("AI_SESSION_MAX_TOKENS", "5000"))
 AI_WEB_SEARCH_CACHE_TTL_SECONDS = max(60, int(os.getenv("AI_WEB_SEARCH_CACHE_TTL_SECONDS", "3600")))
 AI_WEB_SEARCH_CACHE_MAX_ITEMS = max(50, int(os.getenv("AI_WEB_SEARCH_CACHE_MAX_ITEMS", "1000")))
 PASSWORD_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+COURSE_MEMBERSHIP_RECONCILE_ENABLED = _env_flag("COURSE_MEMBERSHIP_RECONCILE_ENABLED", "1")
+COURSE_MEMBERSHIP_RECONCILE_INTERVAL_SECONDS = max(
+    60,
+    _env_int("COURSE_MEMBERSHIP_RECONCILE_INTERVAL_SECONDS", 300),
+)
+COURSE_MEMBERSHIP_RECONCILE_STARTUP_DELAY_SECONDS = max(
+    0,
+    _env_int("COURSE_MEMBERSHIP_RECONCILE_STARTUP_DELAY_SECONDS", 30),
+)
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)

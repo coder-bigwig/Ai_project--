@@ -2,6 +2,7 @@
 
 import mimetypes
 import os
+import re
 import shutil
 import uuid
 from copy import deepcopy
@@ -199,6 +200,37 @@ class AdminService:
             "created_at": record.created_at.isoformat() if record.created_at else "",
         }
 
+    @staticmethod
+    def _teacher_username_alias(username: str) -> str:
+        normalized = normalize_text(username).lower()
+        if not normalized:
+            return ""
+        match = re.fullmatch(r"teacher_?(\d+)", normalized)
+        if match:
+            return f"teacher{match.group(1)}"
+        return normalized
+
+    @classmethod
+    def _resource_user_dedupe_key(cls, username: str, role: str) -> str:
+        normalized_role = normalize_text(role).lower() or "student"
+        normalized_username = normalize_text(username)
+        if normalized_role == "teacher":
+            return f"{normalized_role}:{cls._teacher_username_alias(normalized_username)}"
+        return f"{normalized_role}:{normalized_username.lower()}"
+
+    @staticmethod
+    def _prefer_username(existing_username: str, candidate_username: str) -> str:
+        existing = normalize_text(existing_username)
+        candidate = normalize_text(candidate_username)
+        if not existing:
+            return candidate
+        if not candidate:
+            return existing
+        # Prefer names without underscore when both represent the same teacher alias.
+        if "_" in existing and "_" not in candidate:
+            return candidate
+        return existing
+
     async def _list_classes(self):
         return await UserRepository(self.db).list_classes()
 
@@ -393,24 +425,51 @@ class AdminService:
     async def _collect_resource_control_users(self, policy: dict) -> list[dict]:
         users = await self._managed_users()
         hub_map = self.main._hub_user_state_map()
-        rows = []
+        deduped_rows: list[dict] = []
+        dedupe_index: dict[str, int] = {}
         for item in users:
             username = item["username"]
             role = item["role"]
             quota, source, meta = self._quota_from_policy(username, role, policy)
             hub_state = self.main._extract_server_state(hub_map.get(username))
-            rows.append(
-                {
-                    **item,
-                    "quota": quota,
-                    "quota_source": source,
-                    "quota_updated_by": meta.get("updated_by", ""),
-                    "quota_updated_at": meta.get("updated_at", ""),
-                    "quota_note": meta.get("note", ""),
-                    **hub_state,
-                }
-            )
-        return rows
+            row = {
+                **item,
+                "quota": quota,
+                "quota_source": source,
+                "quota_updated_by": meta.get("updated_by", ""),
+                "quota_updated_at": meta.get("updated_at", ""),
+                "quota_note": meta.get("note", ""),
+                **hub_state,
+            }
+            dedupe_key = self._resource_user_dedupe_key(username, role)
+            existing_index = dedupe_index.get(dedupe_key)
+            if existing_index is None:
+                dedupe_index[dedupe_key] = len(deduped_rows)
+                deduped_rows.append(row)
+                continue
+
+            existing = deduped_rows[existing_index]
+            preferred_username = self._prefer_username(existing.get("username", ""), row.get("username", ""))
+
+            # Keep a custom quota if any duplicate row has custom config.
+            if existing.get("quota_source") != "custom" and row.get("quota_source") == "custom":
+                existing["quota"] = row.get("quota", existing.get("quota", {}))
+                existing["quota_source"] = "custom"
+                existing["quota_updated_by"] = row.get("quota_updated_by", "")
+                existing["quota_updated_at"] = row.get("quota_updated_at", "")
+                existing["quota_note"] = row.get("quota_note", "")
+
+            # Keep running server state if any duplicate row is running.
+            if (not existing.get("server_running")) and row.get("server_running"):
+                existing["server_running"] = True
+                existing["server_pending"] = row.get("server_pending", existing.get("server_pending", False))
+                existing["server_url"] = row.get("server_url", "") or existing.get("server_url", "")
+                existing["last_activity"] = row.get("last_activity", existing.get("last_activity"))
+                existing["hub_admin"] = bool(existing.get("hub_admin") or row.get("hub_admin"))
+
+            existing["username"] = preferred_username
+        return deduped_rows
+
     async def list_admin_teachers(self, admin_username: str):
         await self._ensure_admin(admin_username)
         user_rows = await UserRepository(self.db).list_by_role("teacher")
@@ -648,6 +707,7 @@ class AdminService:
             "success_count": len(success_classes),
             "skipped_count": skipped_count,
             "failed_count": failed_count,
+            "created_class_names": [item["name"] for item in success_classes],
             "errors": errors,
         }
 

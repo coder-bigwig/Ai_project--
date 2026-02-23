@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import TeacherReview from './TeacherReview';
 import TeacherUserManagement from './TeacherUserManagement';
+import LegacyTeacherUserManagement from './LegacyTeacherUserManagement';
 import TeacherTeamManagement from './TeacherTeamManagement';
 import OfferingDetail from './OfferingDetail';
 import ResourceFileManagement from './ResourceFileManagement';
@@ -38,6 +39,13 @@ const ADMIN_TAB = {
   label: '\u8d44\u6e90\u76d1\u63a7',
   tip: '\u5bb9\u5668\u914d\u989d\u4e0e\u65e5\u5fd7',
   Icon: AdminControlTabIcon,
+};
+
+const ADMIN_USER_TAB = {
+  key: 'admin-user-management',
+  label: '\u7528\u6237\u7ba1\u7406',
+  tip: '\u6559\u5e08\u4e0e\u5b66\u751f\u8d26\u53f7\u7ba1\u7406',
+  Icon: UserManagementTabIcon,
 };
 
 function formatDate(v) {
@@ -223,7 +231,7 @@ function flattenExperiments(courses) {
 function TeacherDashboard({ username, userRole, onLogout }) {
   const navigate = useNavigate();
   const isAdmin = userRole === 'admin' || String(username || '').trim() === 'admin';
-  const tabs = useMemo(() => (isAdmin ? [...TABS, ADMIN_TAB] : TABS), [isAdmin]);
+  const tabs = useMemo(() => (isAdmin ? [...TABS, ADMIN_USER_TAB, ADMIN_TAB] : TABS), [isAdmin]);
   const [activeTab, setActiveTab] = useState(isAdmin ? 'admin-resource' : 'courses');
   const [courses, setCourses] = useState([]);
   const [progress, setProgress] = useState([]);
@@ -625,6 +633,12 @@ function TeacherDashboard({ username, userRole, onLogout }) {
           {activeTab === 'ai' ? (
             <div className="teacher-lab-section">
               <TeacherAIModule username={username} />
+            </div>
+          ) : null}
+
+          {activeTab === 'admin-user-management' ? (
+            <div className="teacher-lab-section">
+              <LegacyTeacherUserManagement username={username} userRole={userRole} />
             </div>
           ) : null}
 
@@ -2582,6 +2596,17 @@ function AITabIcon() {
       <path d="M12 3v4M6.5 5.5l2.8 2.8M3 12h4M17 12h4M6.5 18.5l2.8-2.8M14.7 15.7l2.8 2.8" />
       <circle cx="12" cy="12" r="5" />
       <path d="M10.5 12.2l1 1 2-2.3" />
+    </svg>
+  );
+}
+
+function UserManagementTabIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="8.5" r="2.5" />
+      <circle cx="16.5" cy="9.5" r="2" />
+      <path d="M4.5 18.5C5.2 15.9 7 14.3 9.4 14.3c2.3 0 4.1 1.4 4.9 3.9" />
+      <path d="M14 15.8c.6-1.7 1.8-2.7 3.5-2.7 1.8 0 3.1 1.1 3.8 3.1" />
     </svg>
   );
 }

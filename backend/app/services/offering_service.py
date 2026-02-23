@@ -18,6 +18,7 @@ from ..repositories import (
     ExperimentRepository,
 )
 from .identity_service import ensure_student_user, ensure_teacher_or_admin, normalize_text, resolve_user_role
+from .membership_consistency_service import reconcile_membership_consistency
 
 ALLOWED_MEMBER_ROLES = {"teacher", "ta", "student"}
 ALLOWED_OFFERING_STATUS = {"active", "archived"}
@@ -321,6 +322,11 @@ class OfferingService:
                 "join_at": now,
                 "leave_at": None,
             }
+        )
+        # Backfill existing course-level students into this newly created class offering.
+        await reconcile_membership_consistency(
+            self.db,
+            course_id=normalized_course_id,
         )
         await self._commit()
         return self._offering_payload(offering, course=course, member=member)
