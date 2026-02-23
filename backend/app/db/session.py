@@ -22,6 +22,12 @@ def _to_async_driver_url(raw_url: str) -> str:
     return url
 
 
+def _qualified_table_name(table_name: str) -> str:
+    if POSTGRES_SCHEMA and POSTGRES_SCHEMA != "public":
+        return f'"{POSTGRES_SCHEMA}"."{table_name}"'
+    return f'"{table_name}"'
+
+
 async def init_db_engine(force: bool = False) -> bool:
     global _engine, _session_maker, _postgres_ready
     if _engine is not None and _session_maker is not None:
@@ -60,6 +66,13 @@ async def init_db_schema() -> None:
         if POSTGRES_SCHEMA and POSTGRES_SCHEMA != "public":
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{POSTGRES_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
+        for table_name in ("resources", "attachments", "submission_pdfs"):
+            await conn.execute(
+                text(
+                    f"ALTER TABLE IF EXISTS {_qualified_table_name(table_name)} "
+                    "ADD COLUMN IF NOT EXISTS file_data BYTEA"
+                )
+            )
 
 
 async def close_db_engine() -> None:

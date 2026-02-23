@@ -70,8 +70,6 @@ services:
       - "8001:8000"
     networks:
       - training-network
-    volumes:
-      - training-uploads:/app/uploads
     environment:
       DATABASE_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
       POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-experiment_manager}
@@ -225,7 +223,6 @@ volumes:
   postgres-data:
   redis-data:
   jhub-home:
-  training-uploads:
   jupyterhub-data:
   ollama-data:
   prometheus-data:

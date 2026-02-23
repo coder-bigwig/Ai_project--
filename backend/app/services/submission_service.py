@@ -1,8 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
-import os
-import shutil
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -10,6 +8,7 @@ from typing import Optional
 from fastapi import File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..file_storage import build_virtual_path
 from ..repositories import (
     ExperimentRepository,
     StudentExperimentRepository,
@@ -31,7 +30,7 @@ class SubmissionService:
             await self.db.commit()
         except Exception as exc:
             await self.db.rollback()
-            raise HTTPException(status_code=500, detail="提交记录写入失败") from exc
+            raise HTTPException(status_code=500, detail="Failed to persist submission data") from exc
 
     def _to_experiment_model(self, row):
         difficulty = row.difficulty or self.main.DifficultyLevel.BEGINNER.value
@@ -103,10 +102,10 @@ class SubmissionService:
 
     def _pdf_status(self, row) -> str:
         if row.reviewed:
-            return "已批阅"
+            return "reviewed"
         if row.viewed:
-            return "已查看"
-        return "未查看"
+            return "viewed"
+        return "new"
 
     def _pdf_to_payload(self, row) -> dict:
         annotations = []
@@ -148,14 +147,14 @@ class SubmissionService:
     async def start_experiment(self, experiment_id: str, student_id: str):
         student_id = normalize_text(student_id)
         if not student_id:
-            raise HTTPException(status_code=400, detail="student_id不能为空")
+            raise HTTPException(status_code=400, detail="student_id is required")
 
         exp_row = await ExperimentRepository(self.db).get(experiment_id)
         if not exp_row:
-            raise HTTPException(status_code=404, detail="实验不存在")
+            raise HTTPException(status_code=404, detail="experiment not found")
         student_row = await UserRepository(self.db).get_student_by_student_id(student_id)
         if not student_row:
-            raise HTTPException(status_code=404, detail="学生不存在")
+            raise HTTPException(status_code=404, detail="student not found")
 
         experiment = self._to_experiment_model(exp_row)
         student = self._to_student_record(student_row)
@@ -163,7 +162,7 @@ class SubmissionService:
         student_exp = self._to_student_experiment_model(existing) if existing else None
 
         if not self.main._is_experiment_visible_to_student(experiment, student):
-            raise HTTPException(status_code=403, detail="该实验当前未发布给你")
+            raise HTTPException(status_code=403, detail="experiment is not published for this student")
 
         user_notebook_name = f"{student_id}_{experiment_id[:8]}.ipynb"
         notebook_relpath = f"work/{user_notebook_name}"
@@ -194,12 +193,28 @@ class SubmissionService:
                     user_token = self.main._create_short_lived_user_token(student_id)
                     if user_token:
                         user_token_for_url = user_token
-                        dir_resp = self.main._user_contents_request(student_id, user_token, "GET", "work", params={"content": 0})
+                        dir_resp = self.main._user_contents_request(
+                            student_id,
+                            user_token,
+                            "GET",
+                            "work",
+                            params={"content": 0},
+                        )
                         if dir_resp.status_code == 404:
-                            self.main._user_contents_request(student_id, user_token, "PUT", "work", json={"type": "directory"})
+                            self.main._user_contents_request(
+                                student_id,
+                                user_token,
+                                "PUT",
+                                "work",
+                                json={"type": "directory"},
+                            )
 
                         exists_resp = self.main._user_contents_request(
-                            student_id, user_token, "GET", notebook_relpath, params={"content": 0}
+                            student_id,
+                            user_token,
+                            "GET",
+                            notebook_relpath,
+                            params={"content": 0},
                         )
                         if exists_resp.status_code == 404:
                             notebook_json = None
@@ -229,12 +244,16 @@ class SubmissionService:
                 print(f"JupyterHub integration error: {exc}")
 
         jupyter_url = self.main._build_user_lab_url(student_id, path=notebook_relpath, token=user_token_for_url)
-        return {"student_experiment_id": student_exp.id, "jupyter_url": jupyter_url, "message": "实验环境已启动"}
+        return {
+            "student_experiment_id": student_exp.id,
+            "jupyter_url": jupyter_url,
+            "message": "experiment started",
+        }
 
     async def submit_experiment(self, student_exp_id: str, submission):
         row = await StudentExperimentRepository(self.db).get(student_exp_id)
         if not row:
-            raise HTTPException(status_code=404, detail="学生实验记录不存在")
+            raise HTTPException(status_code=404, detail="student experiment record not found")
         student_exp = self._to_student_experiment_model(row)
 
         try:
@@ -246,10 +265,16 @@ class SubmissionService:
                     raise RuntimeError("JupyterHub server not running")
                 user_token = self.main._create_short_lived_user_token(student_id)
                 if not user_token:
-                    raise RuntimeError("Failed to create user API token")
+                    raise RuntimeError("failed to create user API token")
 
                 target_path = ""
-                list_resp = self.main._user_contents_request(student_id, user_token, "GET", "work", params={"content": 1})
+                list_resp = self.main._user_contents_request(
+                    student_id,
+                    user_token,
+                    "GET",
+                    "work",
+                    params={"content": 1},
+                )
                 if list_resp.status_code == 200:
                     listing = list_resp.json() or {}
                     entries = listing.get("content") if isinstance(listing, dict) else None
@@ -278,9 +303,15 @@ class SubmissionService:
                     assigned_name = f"{student_id}_{student_exp.experiment_id[:8]}.ipynb"
                     target_path = f"work/{assigned_name}"
 
-                file_resp = self.main._user_contents_request(student_id, user_token, "GET", target_path, params={"content": 1})
+                file_resp = self.main._user_contents_request(
+                    student_id,
+                    user_token,
+                    "GET",
+                    target_path,
+                    params={"content": 1},
+                )
                 if file_resp.status_code != 200:
-                    raise RuntimeError(f"Failed to read notebook ({file_resp.status_code})")
+                    raise RuntimeError(f"failed to read notebook ({file_resp.status_code})")
 
                 file_payload = file_resp.json() or {}
                 notebook_content = file_payload.get("content")
@@ -300,33 +331,25 @@ class SubmissionService:
         row.submit_time = datetime.now()
         row.updated_at = datetime.now()
         await self._commit()
-        return {"message": "实验已提交", "submit_time": row.submit_time}
+        return {"message": "experiment submitted", "submit_time": row.submit_time}
 
     async def upload_submission_pdf(self, student_exp_id: str, file: UploadFile = File(...)):
         if not file.filename:
-            raise HTTPException(status_code=400, detail="文件名不能为空")
+            raise HTTPException(status_code=400, detail="filename is required")
         is_pdf = file.filename.lower().endswith(".pdf") or (file.content_type or "").lower() == "application/pdf"
         if not is_pdf:
-            raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
+            raise HTTPException(status_code=400, detail="only PDF files are supported")
 
         row = await StudentExperimentRepository(self.db).get(student_exp_id)
         if not row:
-            raise HTTPException(status_code=404, detail="学生实验记录不存在")
+            raise HTTPException(status_code=404, detail="student experiment record not found")
+
+        file_bytes = await file.read()
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="PDF file is empty")
 
         pdf_id = str(uuid.uuid4())
         safe_filename = file.filename.replace(" ", "_")
-        file_path = os.path.join(self.main.UPLOAD_DIR, f"submission_{pdf_id}_{safe_filename}")
-        try:
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"保存PDF失败: {exc}") from exc
-        file_size = os.path.getsize(file_path)
-        if file_size <= 0:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            raise HTTPException(status_code=400, detail="PDF文件为空")
-
         now = datetime.now()
         pdf_row = await SubmissionPdfRepository(self.db).create(
             {
@@ -335,9 +358,10 @@ class SubmissionService:
                 "experiment_id": row.experiment_id,
                 "student_id": row.student_id,
                 "filename": file.filename,
-                "file_path": file_path,
+                "file_path": build_virtual_path("submission-pdfs", pdf_id, safe_filename),
+                "file_data": file_bytes,
                 "content_type": "application/pdf",
-                "size": file_size,
+                "size": len(file_bytes),
                 "viewed": False,
                 "viewed_at": None,
                 "viewed_by": "",
@@ -363,7 +387,7 @@ class SubmissionService:
     async def list_submission_pdfs(self, student_exp_id: str):
         student_exp = await StudentExperimentRepository(self.db).get(student_exp_id)
         if not student_exp:
-            raise HTTPException(status_code=404, detail="学生实验记录不存在")
+            raise HTTPException(status_code=404, detail="student experiment record not found")
         rows = await SubmissionPdfRepository(self.db).list_by_submission(student_exp_id)
         return [self._pdf_to_payload(item) for item in rows]
 
@@ -371,7 +395,7 @@ class SubmissionService:
         normalized_teacher = await self._ensure_teacher(teacher_username)
         row = await SubmissionPdfRepository(self.db).get(pdf_id)
         if not row:
-            raise HTTPException(status_code=404, detail="提交 PDF 不存在")
+            raise HTTPException(status_code=404, detail="submission PDF not found")
         row.viewed = True
         row.viewed_at = datetime.now()
         row.viewed_by = normalized_teacher
@@ -383,15 +407,16 @@ class SubmissionService:
         normalized_teacher = await self._ensure_teacher(payload.teacher_username)
         content = normalize_text(payload.content)
         if not content:
-            raise HTTPException(status_code=400, detail="批注内容不能为空")
+            raise HTTPException(status_code=400, detail="annotation content is required")
 
         row = await SubmissionPdfRepository(self.db).get(pdf_id)
         if not row:
-            raise HTTPException(status_code=404, detail="提交 PDF 不存在")
+            raise HTTPException(status_code=404, detail="submission PDF not found")
         if not row.viewed:
             row.viewed = True
             row.viewed_at = datetime.now()
             row.viewed_by = normalized_teacher
+
         annotations = list(row.annotations or [])
         annotations.append(
             {
@@ -413,19 +438,19 @@ class SubmissionService:
     async def get_student_experiment_detail(self, student_exp_id: str):
         row = await StudentExperimentRepository(self.db).get(student_exp_id)
         if not row:
-            raise HTTPException(status_code=404, detail="学生实验记录不存在")
+            raise HTTPException(status_code=404, detail="student experiment record not found")
         return self._to_student_experiment_model(row)
 
     async def get_submission_pdf_row(self, pdf_id: str):
         row = await SubmissionPdfRepository(self.db).get(pdf_id)
         if not row:
-            raise HTTPException(status_code=404, detail="提交 PDF 不存在")
+            raise HTTPException(status_code=404, detail="submission PDF not found")
         return row
 
     async def download_submission_pdf(self, pdf_id: str, teacher_username: Optional[str] = None):
         row = await SubmissionPdfRepository(self.db).get(pdf_id)
         if not row:
-            raise HTTPException(status_code=404, detail="提交 PDF 不存在")
+            raise HTTPException(status_code=404, detail="submission PDF not found")
         if teacher_username:
             role = await resolve_user_role(self.db, teacher_username)
             if role in {"teacher", "admin"}:
@@ -456,7 +481,7 @@ class SubmissionService:
 
     async def grade_experiment(self, student_exp_id: str, score: float, comment: Optional[str], teacher_username: Optional[str]):
         if not (0 <= score <= 100):
-            raise HTTPException(status_code=400, detail="分数必须在 0-100 之间")
+            raise HTTPException(status_code=400, detail="score must be between 0 and 100")
 
         reviewer = "teacher"
         if teacher_username:
@@ -466,9 +491,9 @@ class SubmissionService:
 
         student_row = await StudentExperimentRepository(self.db).get(student_exp_id)
         if not student_row:
-            raise HTTPException(status_code=404, detail="学生实验记录不存在")
+            raise HTTPException(status_code=404, detail="student experiment record not found")
         student_row.score = score
-        student_row.teacher_comment = comment
+        student_row.teacher_comment = normalize_text(comment)
         student_row.status = self.main.ExperimentStatus.GRADED.value
         student_row.updated_at = datetime.now()
 
@@ -484,9 +509,8 @@ class SubmissionService:
                 item.viewed_by = reviewer
             item.updated_at = now
         await self._commit()
-        return {"message": "评分成功", "score": score}
+        return {"message": "grading completed", "score": score}
 
 
 def build_submission_service(main_module, db: Optional[AsyncSession] = None) -> SubmissionService:
     return SubmissionService(main_module=main_module, db=db)
-

@@ -261,7 +261,7 @@ function ExperimentWorkspace() {
             if (fetchedAttachments.length > 0) {
                 const formattedDocs = fetchedAttachments
                     .map((att, index) => ({
-                        uri: `/api/attachments/${att.id}/download`,
+                        uri: `${API_BASE_URL}/api/attachments/${att.id}/download`,
                         fileName: att.filename,
                         displayName: getAttachmentDisplayName(att.filename, expRes.data?.title, index),
                         fileType: att.content_type,

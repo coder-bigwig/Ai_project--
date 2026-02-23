@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,6 +57,7 @@ class SubmissionPdfORM(Base, TimestampVersionMixin):
     student_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     content_type: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default=text("''"))
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     viewed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))

@@ -1,16 +1,18 @@
-import os
+﻿import io
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.session import get_db
+from ...file_storage import read_row_file_bytes
 from ...services.attachment_service import build_attachment_service
 
 
 def _get_main_module():
     from ... import main
+
     return main
 
 
@@ -40,14 +42,16 @@ async def download_attachment(
     db: Optional[AsyncSession] = Depends(get_db),
 ):
     service = build_attachment_service(main_module=main, db=db)
-    att = await service.get_attachment(attachment_id=attachment_id)
-    if not os.path.exists(att.file_path):
-        raise HTTPException(status_code=404, detail="文件物理路径不存在")
+    row = await service.get_attachment_row(attachment_id=attachment_id)
+    file_bytes = read_row_file_bytes(row)
+    if not file_bytes:
+        raise HTTPException(status_code=404, detail="Attachment file not found")
 
-    lower_filename = att.filename.lower()
-    is_pdf = att.content_type == "application/pdf" or lower_filename.endswith(".pdf")
+    lower_filename = row.filename.lower()
+    is_pdf = row.content_type == "application/pdf" or lower_filename.endswith(".pdf")
     is_ppt = (
-        att.content_type in [
+        row.content_type
+        in [
             "application/vnd.ms-powerpoint",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         ]
@@ -63,14 +67,13 @@ async def download_attachment(
     elif lower_filename.endswith(".ppt"):
         media_type = "application/vnd.ms-powerpoint"
     else:
-        media_type = att.content_type
+        media_type = row.content_type or "application/octet-stream"
 
-    response_filename = "document.pdf" if is_pdf else att.filename
-    return FileResponse(
-        path=att.file_path,
-        filename=response_filename,
+    response_filename = "document.pdf" if is_pdf else row.filename
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
         media_type=media_type,
-        content_disposition_type=content_disposition,
+        headers={"Content-Disposition": f'{content_disposition}; filename="{response_filename}"'},
     )
 
 
@@ -80,8 +83,9 @@ async def download_attachment_word(
 ):
     service = build_attachment_service(main_module=main, db=db)
     target_attachment = await service.find_paired_word_attachment(attachment_id=attachment_id)
-    if not os.path.exists(target_attachment.file_path):
-        raise HTTPException(status_code=404, detail="attachment file not found")
+    file_bytes = read_row_file_bytes(target_attachment)
+    if not file_bytes:
+        raise HTTPException(status_code=404, detail="Attachment file not found")
 
     lower_filename = target_attachment.filename.lower()
     if lower_filename.endswith(".docx"):
@@ -97,15 +101,19 @@ async def download_attachment_word(
     else:
         media_type = target_attachment.content_type or "application/octet-stream"
 
-    return FileResponse(
-        path=target_attachment.file_path,
-        filename=target_attachment.filename,
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
         media_type=media_type,
-        content_disposition_type="attachment",
+        headers={"Content-Disposition": f'attachment; filename="{target_attachment.filename}"'},
     )
 
 
 router.add_api_route("/api/teacher/experiments/{experiment_id}/attachments", upload_attachments, methods=["POST"])
-router.add_api_route("/api/experiments/{experiment_id}/attachments", list_attachments, methods=["GET"], response_model=list[main.Attachment])
+router.add_api_route(
+    "/api/experiments/{experiment_id}/attachments",
+    list_attachments,
+    methods=["GET"],
+    response_model=list[main.Attachment],
+)
 router.add_api_route("/api/attachments/{attachment_id}/download", download_attachment, methods=["GET"])
 router.add_api_route("/api/attachments/{attachment_id}/download-word", download_attachment_word, methods=["GET"])

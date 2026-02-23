@@ -1,7 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
-import shutil
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -9,6 +8,7 @@ from typing import Optional
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..file_storage import build_virtual_path, row_has_file_content
 from ..repositories import AttachmentRepository, ExperimentRepository
 
 
@@ -24,7 +24,7 @@ class AttachmentService:
             await self.db.commit()
         except Exception as exc:
             await self.db.rollback()
-            raise HTTPException(status_code=500, detail="附件元数据写入失败") from exc
+            raise HTTPException(status_code=500, detail="Failed to persist attachment metadata") from exc
 
     @staticmethod
     def _to_model(main_module, row):
@@ -41,29 +41,29 @@ class AttachmentService:
     async def upload_attachments(self, experiment_id: str, files: list[UploadFile]):
         experiment = await ExperimentRepository(self.db).get(experiment_id)
         if not experiment:
-            raise HTTPException(status_code=404, detail="实验不存在")
+            raise HTTPException(status_code=404, detail="Experiment not found")
 
         repo = AttachmentRepository(self.db)
         uploaded: list = []
-        created_paths: list[str] = []
         try:
             for file in files:
                 if not file.filename:
                     continue
+
+                file_bytes = await file.read()
+                if not file_bytes:
+                    raise HTTPException(status_code=400, detail="Attachment file is empty")
+
                 att_id = str(uuid.uuid4())
                 safe_filename = file.filename.replace(" ", "_")
-                file_path = os.path.join(self.main.UPLOAD_DIR, f"{att_id}_{safe_filename}")
-                with open(file_path, "wb") as buffer:
-                    shutil.copyfileobj(file.file, buffer)
-                created_paths.append(file_path)
-
                 payload = {
                     "id": att_id,
                     "experiment_id": experiment_id,
                     "filename": file.filename,
-                    "file_path": file_path,
+                    "file_path": build_virtual_path("attachments", att_id, safe_filename),
+                    "file_data": file_bytes,
                     "content_type": file.content_type or "application/octet-stream",
-                    "size": os.path.getsize(file_path),
+                    "size": len(file_bytes),
                     "created_at": datetime.now(),
                     "updated_at": datetime.now(),
                 }
@@ -71,15 +71,12 @@ class AttachmentService:
                 uploaded.append(self._to_model(self.main, row))
 
             await self._commit()
+        except HTTPException:
+            await self.db.rollback()
+            raise
         except Exception as exc:
             await self.db.rollback()
-            for path in created_paths:
-                if os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
-            raise HTTPException(status_code=500, detail=f"保存附件失败: {exc}") from exc
+            raise HTTPException(status_code=500, detail=f"Failed to save attachment: {exc}") from exc
 
         return uploaded
 
@@ -87,21 +84,19 @@ class AttachmentService:
         rows = await AttachmentRepository(self.db).list_by_experiment(experiment_id)
         return [self._to_model(self.main, row) for row in rows]
 
-    async def get_attachment(self, attachment_id: str):
+    async def get_attachment_row(self, attachment_id: str):
         row = await AttachmentRepository(self.db).get(attachment_id)
         if not row:
-            raise HTTPException(status_code=404, detail="附件不存在")
-        return self._to_model(self.main, row)
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        return row
 
     async def find_paired_word_attachment(self, attachment_id: str):
-        row = await AttachmentRepository(self.db).get(attachment_id)
-        if not row:
-            raise HTTPException(status_code=404, detail="附件不存在")
+        row = await self.get_attachment_row(attachment_id)
 
         lower_filename = row.filename.lower()
         is_pdf = row.content_type == "application/pdf" or lower_filename.endswith(".pdf")
         if not is_pdf:
-            return self._to_model(self.main, row)
+            return row
 
         base_name = os.path.splitext(row.filename)[0]
         candidates = await AttachmentRepository(self.db).list_by_experiment(row.experiment_id)
@@ -115,17 +110,16 @@ class AttachmentService:
                 continue
             if not (item_lower.endswith(".docx") or item_lower.endswith(".doc")):
                 continue
-            if not os.path.exists(item.file_path):
+            if not row_has_file_content(item):
                 continue
             matched.append(item)
 
         if not matched:
-            return self._to_model(self.main, row)
+            return row
 
         matched.sort(key=lambda item: 0 if item.filename.lower().endswith(".docx") else 1)
-        return self._to_model(self.main, matched[0])
+        return matched[0]
 
 
 def build_attachment_service(main_module, db: Optional[AsyncSession] = None) -> AttachmentService:
     return AttachmentService(main_module=main_module, db=db)
-

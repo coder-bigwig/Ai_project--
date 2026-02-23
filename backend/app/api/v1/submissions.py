@@ -1,16 +1,18 @@
-import os
+﻿import io
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.session import get_db
+from ...file_storage import read_row_file_bytes
 from ...services.submission_service import build_submission_service
 
 
 def _get_main_module():
     from ... import main
+
     return main
 
 
@@ -94,15 +96,14 @@ async def download_submission_pdf(
 ):
     service = build_submission_service(main_module=main, db=db)
     record = await service.download_submission_pdf(pdf_id=pdf_id, teacher_username=teacher_username)
-    file_path = getattr(record, "file_path", "")
+    file_bytes = read_row_file_bytes(record)
     filename = getattr(record, "filename", "document.pdf")
-    if not file_path or not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="PDF 文件不存在")
-    return FileResponse(
-        path=file_path,
-        filename=filename,
+    if not file_bytes:
+        raise HTTPException(status_code=404, detail="PDF file not found")
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
         media_type="application/pdf",
-        content_disposition_type="inline",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 

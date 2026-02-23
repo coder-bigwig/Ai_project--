@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,7 @@ class ResourceORM(Base, TimestampVersionMixin):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     file_type: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default=text("''"))
     content_type: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default=text("''"))
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
@@ -39,6 +40,7 @@ class AttachmentORM(Base, TimestampVersionMixin):
     )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     content_type: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default=text("''"))
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
 

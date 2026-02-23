@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import DEFAULT_ADMISSION_YEAR_OPTIONS, DEFAULT_PASSWORD
+from ..file_storage import remove_legacy_file
 from ..repositories import (
     AttachmentRepository,
     AuthUserRepository,
@@ -819,11 +820,7 @@ class TeacherService:
             for exp in exp_rows:
                 attachments = await att_repo.list_by_experiment(exp.id)
                 for att in attachments:
-                    if os.path.exists(att.file_path):
-                        try:
-                            os.remove(att.file_path)
-                        except OSError:
-                            pass
+                    remove_legacy_file(att.file_path)
                     await att_repo.delete(att.id)
                 await exp_repo.delete(exp.id)
 

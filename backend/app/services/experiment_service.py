@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..file_storage import remove_legacy_file
 from ..repositories import (
     AttachmentRepository,
     CourseMemberRepository,
@@ -123,18 +124,10 @@ class ExperimentService:
         attachments = await attachment_repo.list_by_experiment(experiment_id)
         removed_attachment_ids = [item.id for item in attachments]
         for item in attachments:
-            if item.file_path and self.main.os.path.exists(item.file_path):
-                try:
-                    self.main.os.remove(item.file_path)
-                except OSError:
-                    pass
+            remove_legacy_file(item.file_path)
 
         for item in await pdf_repo.list_by_experiment(experiment_id):
-            if item.file_path and self.main.os.path.exists(item.file_path):
-                try:
-                    self.main.os.remove(item.file_path)
-                except OSError:
-                    pass
+            remove_legacy_file(item.file_path)
 
         if removed_attachment_ids:
             await attachment_repo.delete_many(removed_attachment_ids)

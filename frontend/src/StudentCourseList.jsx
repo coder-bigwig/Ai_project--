@@ -30,7 +30,6 @@ const TEXT = {
     namePrefix: '\u59d3\u540d',
     classPrefix: '\u73ed\u7ea7',
     studentIdPrefix: '\u5b66\u53f7',
-    unknownClass: '\u672a\u7ed1\u5b9a\u73ed\u7ea7',
     moduleLabel: '\u8bfe\u7a0b\u5e93',
     moduleTip: '\u8bfe\u7a0b\u4e0e\u5b9e\u9a8c\u7ba1\u7406',
     resourceModuleLabel: '\u5e73\u53f0\u8d44\u6e90',
@@ -47,9 +46,6 @@ const TEXT = {
     joinByCodePlaceholder: '\u8f93\u5165\u8bfe\u7a0b\u7801',
     joinByCodeButton: '\u641c\u7d22/\u8f93\u5165\u8bfe\u7a0b\u7801\u52a0\u5165',
     joinCourse: '\u52a0\u5165\u8bfe\u7a0b',
-    leaveCourse: '\u9000\u51fa\u8bfe\u7a0b',
-    rejoinCourse: '\u91cd\u65b0\u52a0\u5165',
-    viewOfferingExperiments: '\u67e5\u770b\u5b9e\u9a8c',
     backToCourseLibrary: '\u8fd4\u56de\u8bfe\u7a0b\u5e93',
     courseCountPrefix: '\u5b9e\u9a8c\u6570\uff1a',
     courseUntitled: '\u672a\u547d\u540d\u8bfe\u7a0b',
@@ -109,7 +105,7 @@ const TEXT = {
     statusInProgress: '\u8fdb\u884c\u4e2d',
     statusSubmitted: '\u5df2\u63d0\u4ea4',
     statusGraded: '\u5df2\u8bc4\u5206',
-    majorPrefix: '\u4e13\u4e1a',
+    majorPrefix: '\u5b66\u6821',
     admissionYearPrefix: '\u5165\u5b66\u5e74\u4efd',
     profileInfoTitle: '\u4e2a\u4eba\u4fe1\u606f',
     profilePasswordTitle: '\u4fee\u6539\u5bc6\u7801',
@@ -434,21 +430,6 @@ function StudentCourseList({ username, onLogout }) {
         }
     };
 
-    const handleLeaveOffering = async (offeringId) => {
-        try {
-            await axios.post(`${API_BASE_URL}/api/student/offerings/${offeringId}/leave`, {
-                student_id: username
-            });
-            if (selectedCourseKey === offeringId) {
-                setSelectedCourseKey('');
-                setOfferingExperiments([]);
-            }
-            await loadCoursesWithStatus();
-        } catch (error) {
-            alert(error.response?.data?.detail || TEXT.loadError);
-        }
-    };
-
     const loadStudentProfileIfNeeded = async () => {
         if (!username) {
             return;
@@ -659,35 +640,24 @@ function StudentCourseList({ username, onLogout }) {
                                                         const cover = resolveCourseCover(courseGroup);
                                                         const isActiveMember = String(courseGroup.memberStatus || '').toLowerCase() === 'active';
                                                         return (
-                                                            <article className="lab-course-home-card" key={courseGroup.key}>
+                                                            <button
+                                                                type="button"
+                                                                className="lab-course-home-card"
+                                                                key={courseGroup.key}
+                                                                disabled={!isActiveMember}
+                                                                onClick={() => {
+                                                                    if (isActiveMember) {
+                                                                        openOffering(courseGroup.offeringId);
+                                                                    }
+                                                                }}
+                                                            >
                                                                 <div className="lab-course-home-cover" aria-hidden>
                                                                     <img src={cover.src} alt={cover.label} />
                                                                     <span>{TEXT.studentCoverMark}</span>
                                                                 </div>
                                                                 <strong>{courseGroup.courseName}</strong>
                                                                 <span>{courseGroup.teacherName}</span>
-                                                                <p className="lab-course-home-meta">{`${TEXT.classPrefix}\uff1a${courseGroup.className || TEXT.unknownClass}`}</p>
-                                                                {isActiveMember ? (
-                                                                    <div className="lab-course-home-card-actions">
-                                                                        <button
-                                                                            type="button"
-                                                                            className="lab-course-open-btn"
-                                                                            onClick={() => openOffering(courseGroup.offeringId)}
-                                                                        >
-                                                                            {TEXT.viewOfferingExperiments}
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            className="lab-course-leave-btn"
-                                                                            onClick={() => handleLeaveOffering(courseGroup.offeringId)}
-                                                                        >
-                                                                            {TEXT.leaveCourse}
-                                                                        </button>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="lab-offering-left-tag">{TEXT.rejoinCourse}</div>
-                                                                )}
-                                                            </article>
+                                                            </button>
                                                         );
                                                     })}
                                                 </div>

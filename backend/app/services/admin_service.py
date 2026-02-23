@@ -3,7 +3,6 @@
 import mimetypes
 import os
 import re
-import shutil
 import uuid
 from copy import deepcopy
 from datetime import datetime
@@ -11,7 +10,7 @@ from typing import Optional
 import io
 
 from fastapi import File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import (
@@ -19,7 +18,14 @@ from ..config import (
     DEFAULT_ADMISSION_YEAR_OPTIONS,
     DEFAULT_PASSWORD,
     DEFAULT_RESOURCE_ROLE_LIMITS,
-    UPLOAD_DIR,
+)
+from ..file_storage import (
+    build_virtual_path,
+    read_docx_preview_from_bytes,
+    read_row_file_bytes,
+    read_text_preview_from_bytes,
+    remove_legacy_file,
+    row_has_file_content,
 )
 from ..repositories import (
     AuthUserRepository,
@@ -979,11 +985,7 @@ class AdminService:
     async def _delete_student_related_rows(self, student_row):
         pdf_repo = SubmissionPdfRepository(self.db)
         for pdf in await pdf_repo.list_by_student(student_row.student_id or student_row.username):
-            if pdf.file_path and os.path.exists(pdf.file_path):
-                try:
-                    os.remove(pdf.file_path)
-                except OSError:
-                    pass
+            remove_legacy_file(pdf.file_path)
             await pdf_repo.delete(pdf.id)
         await StudentExperimentRepository(self.db).delete_by_student(student_row.student_id or student_row.username)
 
@@ -1263,30 +1265,22 @@ class AdminService:
         if extension not in ALLOWED_RESOURCE_EXTENSIONS:
             raise HTTPException(status_code=400, detail="暂不支持该文件类型")
 
-        safe_filename = original_filename.replace(" ", "_").replace("/", "_").replace("\\", "_")
-        resource_id = str(uuid.uuid4())
-        file_path = os.path.join(UPLOAD_DIR, f"resource_{resource_id}_{safe_filename}")
-        try:
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"文件保存失败: {exc}") from exc
-
-        file_size = os.path.getsize(file_path)
-        if file_size <= 0:
-            if os.path.exists(file_path):
-                os.remove(file_path)
+        file_bytes = await file.read()
+        if not file_bytes:
             raise HTTPException(status_code=400, detail="上传文件为空")
 
+        safe_filename = original_filename.replace(" ", "_").replace("/", "_").replace("\\", "_")
+        resource_id = str(uuid.uuid4())
         inferred_content_type = file.content_type or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
         row = await ResourceRepository(self.db).create(
             {
                 "id": resource_id,
                 "filename": original_filename,
-                "file_path": file_path,
+                "file_path": build_virtual_path("resources", resource_id, safe_filename),
+                "file_data": file_bytes,
                 "file_type": extension.lstrip("."),
                 "content_type": inferred_content_type,
-                "size": file_size,
+                "size": len(file_bytes),
                 "created_at": datetime.now(),
                 "updated_at": datetime.now(),
                 "created_by": normalized_teacher,
@@ -1320,7 +1314,7 @@ class AdminService:
                 continue
             if normalized_type and normalize_text(row.file_type).lower().lstrip(".") != normalized_type:
                 continue
-            if not os.path.exists(row.file_path):
+            if not row_has_file_content(row):
                 continue
             scope = self._resource_scope_or_empty(bindings.get(row.id))
             if not self._resource_scope_matches(scope, scope_filter):
@@ -1343,10 +1337,11 @@ class AdminService:
         scope = self._resource_scope_or_empty(bindings.get(resource_id))
         if not self._resource_scope_matches(scope, scope_filter):
             raise HTTPException(status_code=404, detail="资源文件不存在")
+
         row = await ResourceRepository(self.db).get(resource_id)
         if not row:
             raise HTTPException(status_code=404, detail="资源文件不存在")
-        if not os.path.exists(row.file_path):
+        if not row_has_file_content(row):
             await ResourceRepository(self.db).delete(resource_id)
             if resource_id in bindings:
                 bindings.pop(resource_id, None)
@@ -1356,10 +1351,11 @@ class AdminService:
 
         payload = self._resource_payload(row, scope=scope)
         preview_mode = payload["preview_mode"]
-        if preview_mode in {"markdown", "text"}:
-            payload["preview_text"] = self.main._read_text_preview(row.file_path)
-        elif preview_mode == "docx":
-            payload["preview_text"] = self.main._read_docx_preview(row.file_path)
+        raw = read_row_file_bytes(row)
+        if preview_mode in {"markdown", "text"} and raw:
+            payload["preview_text"] = read_text_preview_from_bytes(raw)
+        elif preview_mode == "docx" and raw:
+            payload["preview_text"] = read_docx_preview_from_bytes(raw)
         else:
             payload["preview_text"] = ""
         return payload
@@ -1380,11 +1376,8 @@ class AdminService:
         row = await ResourceRepository(self.db).get(resource_id)
         if not row:
             raise HTTPException(status_code=404, detail="资源文件不存在")
-        if os.path.exists(row.file_path):
-            try:
-                os.remove(row.file_path)
-            except OSError as exc:
-                raise HTTPException(status_code=500, detail=f"删除文件失败: {exc}") from exc
+
+        remove_legacy_file(row.file_path)
         await ResourceRepository(self.db).delete(resource_id)
         if resource_id in bindings:
             bindings.pop(resource_id, None)
@@ -1405,16 +1398,21 @@ class AdminService:
         scope = self._resource_scope_or_empty(bindings.get(resource_id))
         if not self._resource_scope_matches(scope, scope_filter):
             raise HTTPException(status_code=404, detail="资源文件不存在")
+
         row = await ResourceRepository(self.db).get(resource_id)
-        if not row or not os.path.exists(row.file_path):
+        if not row or not row_has_file_content(row):
             raise HTTPException(status_code=404, detail="资源文件不存在")
         if self._resource_preview_mode(row.file_type) != "pdf":
             raise HTTPException(status_code=400, detail="该文件类型不支持二进制在线预览")
-        return FileResponse(
-            path=row.file_path,
-            filename="document.pdf",
+
+        raw = read_row_file_bytes(row)
+        if not raw:
+            raise HTTPException(status_code=404, detail="资源文件不存在")
+
+        return StreamingResponse(
+            io.BytesIO(raw),
             media_type="application/pdf",
-            content_disposition_type="inline",
+            headers={"Content-Disposition": 'inline; filename="document.pdf"'},
         )
 
     async def download_resource_file(
@@ -1430,13 +1428,22 @@ class AdminService:
         scope = self._resource_scope_or_empty(bindings.get(resource_id))
         if not self._resource_scope_matches(scope, scope_filter):
             raise HTTPException(status_code=404, detail="资源文件不存在")
+
         row = await ResourceRepository(self.db).get(resource_id)
-        if not row or not os.path.exists(row.file_path):
+        if not row or not row_has_file_content(row):
             raise HTTPException(status_code=404, detail="资源文件不存在")
+
+        raw = read_row_file_bytes(row)
+        if not raw:
+            raise HTTPException(status_code=404, detail="资源文件不存在")
+
         media_type = row.content_type or mimetypes.guess_type(row.filename)[0] or "application/octet-stream"
-        return FileResponse(
-            path=row.file_path,
-            filename=row.filename,
+        return StreamingResponse(
+            io.BytesIO(raw),
             media_type=media_type,
-            content_disposition_type="attachment",
+            headers={"Content-Disposition": f'attachment; filename="{row.filename}"'},
         )
+
+
+def build_admin_service(main_module, db: AsyncSession) -> AdminService:
+    return AdminService(main_module=main_module, db=db)
