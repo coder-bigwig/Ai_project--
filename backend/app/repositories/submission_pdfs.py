@@ -35,6 +35,11 @@ class SubmissionPdfRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_by_experiment(self, experiment_id: str) -> Sequence[SubmissionPdfORM]:
+        stmt = select(SubmissionPdfORM).where(SubmissionPdfORM.experiment_id == experiment_id)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def update(self, record: SubmissionPdfORM, payload: dict[str, Any]) -> SubmissionPdfORM:
         for key, value in payload.items():
             setattr(record, key, value)

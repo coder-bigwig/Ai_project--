@@ -2,22 +2,41 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import ResourcePreviewContent from './ResourcePreviewContent';
+import { persistJupyterTokenFromUrl } from './jupyterAuth';
+import cover01 from './assets/system-covers/cover-01.svg';
+import cover02 from './assets/system-covers/cover-02.svg';
+import cover03 from './assets/system-covers/cover-03.svg';
 import './StudentCourseList.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const SELECTED_COURSE_CACHE_KEY = 'studentSelectedCourseKey';
+const JUPYTERHUB_URL = process.env.REACT_APP_JUPYTERHUB_URL || '';
+const DEFAULT_JUPYTERHUB_URL = `${window.location.origin}/jupyter/hub/home`;
+const DEFAULT_JUPYTERHUB_HEALTH_URL = `${window.location.origin}/jupyter/hub/health`;
+const LEGACY_JUPYTERHUB_URL = `${window.location.protocol}//${window.location.hostname}:8003/jupyter/hub/home`;
+const SYSTEM_COVERS = [
+    { id: 'system-01', label: '\u7cfb\u7edf\u5c01\u9762 1', src: cover01 },
+    { id: 'system-02', label: '\u7cfb\u7edf\u5c01\u9762 2', src: cover02 },
+    { id: 'system-03', label: '\u7cfb\u7edf\u5c01\u9762 3', src: cover03 },
+];
 
 const TEXT = {
-    platformTitle: '福州理工学院AI编程实践教学平台',
-    platformSubTitle: 'FUZHOU INSTITUTE OF TECHNOLOGY · AI PROGRAMMING PRACTICE TEACHING PLATFORM',
+    platformTitle: '\u798f\u5dde\u7406\u5de5\u5b66\u9662AI\u7f16\u7a0b\u5b9e\u8df5\u6559\u5b66\u5e73\u53f0',
+    platformSubTitle: '\u5b66\u751f\u7aef / AI Programming Practice Teaching Platform',
     logout: '\u9000\u51fa',
+    jupyterHub: '\u8fdb\u5165 JupyterHub',
+    studentAccountPrefix: '\u5b66\u751f\u8d26\u53f7\uff1a',
+    studentRoleLabel: '\u89d2\u8272\uff1a\u5b66\u751f',
     namePrefix: '\u59d3\u540d',
     classPrefix: '\u73ed\u7ea7',
     studentIdPrefix: '\u5b66\u53f7',
     unknownClass: '\u672a\u7ed1\u5b9a\u73ed\u7ea7',
     moduleLabel: '\u8bfe\u7a0b\u5e93',
+    moduleTip: '\u8bfe\u7a0b\u4e0e\u5b9e\u9a8c\u7ba1\u7406',
     resourceModuleLabel: '\u5e73\u53f0\u8d44\u6e90',
+    resourceModuleTip: '\u6559\u5b66\u4e0e\u5b9e\u9a8c\u8d44\u6e90',
     profileModuleLabel: '\u4e2a\u4eba\u4e2d\u5fc3',
+    profileModuleTip: '\u8d26\u53f7\u4e0e\u5b89\u5168\u8bbe\u7f6e',
     sidebarTitle: '\u6a21\u5757',
     breadcrumbCurrent: '\u8bfe\u7a0b\u5e93',
     resourceBreadcrumbCurrent: '\u6559\u5b66\u4e0e\u5b9e\u9a8c\u8d44\u6e90',
@@ -25,6 +44,12 @@ const TEXT = {
     loading: '\u6b63\u5728\u52a0\u8f7d\u8bfe\u7a0b\u5217\u8868...',
     empty: '\u5f53\u524d\u6682\u65e0\u53ef\u7528\u8bfe\u7a0b',
     chooseCourse: '\u8fdb\u5165\u8bfe\u7a0b',
+    joinByCodePlaceholder: '\u8f93\u5165\u8bfe\u7a0b\u7801',
+    joinByCodeButton: '\u641c\u7d22/\u8f93\u5165\u8bfe\u7a0b\u7801\u52a0\u5165',
+    joinCourse: '\u52a0\u5165\u8bfe\u7a0b',
+    leaveCourse: '\u9000\u51fa\u8bfe\u7a0b',
+    rejoinCourse: '\u91cd\u65b0\u52a0\u5165',
+    viewOfferingExperiments: '\u67e5\u770b\u5b9e\u9a8c',
     backToCourseLibrary: '\u8fd4\u56de\u8bfe\u7a0b\u5e93',
     courseCountPrefix: '\u5b9e\u9a8c\u6570\uff1a',
     courseUntitled: '\u672a\u547d\u540d\u8bfe\u7a0b',
@@ -34,6 +59,22 @@ const TEXT = {
     teacherPrefix: '\u6388\u8bfe\u8001\u5e08\uff1a',
     unknownTeacher: '\u672a\u77e5',
     openExperiment: '\u6253\u5f00\u5b9e\u9a8c',
+    homeSearchPlaceholder: '\u641c\u7d22',
+    noSearchResult: '\u672a\u5339\u914d\u5230\u8bfe\u7a0b',
+    detailResources: '\u8d44\u6599',
+    detailAssignments: '\u4f5c\u4e1a',
+    assignmentSearchPlaceholder: '\u641c\u7d22\u4f5c\u4e1a',
+    assignmentCountPrefix: '\u4f5c\u4e1a\u6570\uff1a',
+    resourceSearchPlaceholderInCourse: '\u641c\u7d22\u8d44\u6599',
+    resourceCountPrefixInCourse: '\u8d44\u6599\u9879\uff1a',
+    noResourcesInCourse: '\u5f53\u524d\u8bfe\u7a0b\u6682\u65e0\u8d44\u6599',
+    offeringCodeLabel: '\u73ed\u7ea7\u5f00\u8bfe\u6807\u8bc6',
+    courseCodeLabel: '\u8bfe\u7a0b\u7801',
+    detailMenuBack: '\u8fd4\u56de\u8bfe\u7a0b\u5e93',
+    detailMenuPortal: '\u8bfe\u7a0b\u95e8\u6237',
+    studentCoverMark: '\u5b66',
+    noAssignments: '\u5f53\u524d\u8bfe\u7a0b\u6682\u65e0\u4f5c\u4e1a',
+    joinCodeMetaPrefix: '\u8bfe\u7a0b\u7801\uff1a',
     uploadPdf: '\u5b9e\u9a8c\u62a5\u544a PDF\uff08\u53ef\u9009\uff09',
     submitHomework: '\u63d0\u4ea4\u4f5c\u4e1a',
     confirmSubmit: '\u786e\u8ba4\u63d0\u4ea4\u5b9e\u9a8c\u5417\uff1f\u63d0\u4ea4\u524d\u8bf7\u5148\u5728 JupyterLab \u4fdd\u5b58\u597d\u6587\u4ef6\u3002',
@@ -83,7 +124,25 @@ const TEXT = {
     passwordTooShort: '\u65b0\u5bc6\u7801\u957f\u5ea6\u4e0d\u80fd\u5c11\u4e8e 6 \u4f4d',
     passwordChangeSuccess: '\u5bc6\u7801\u4fee\u6539\u6210\u529f',
     passwordChangeErrorPrefix: '\u4fee\u6539\u5bc6\u7801\u5931\u8d25\uff1a',
-    profileNotAvailable: '\u6682\u65e0\u4e2a\u4eba\u4fe1\u606f'
+    profileNotAvailable: '\u6682\u65e0\u4e2a\u4eba\u4fe1\u606f',
+    profileSecurityTitle: '\u8d26\u53f7\u4e0e\u5b89\u5168',
+    profilePasswordHint: '\u5b9a\u671f\u4fee\u6539\u5bc6\u7801\uff0c\u4fdd\u969c\u8d26\u53f7\u5b89\u5168\u3002',
+    securityQuestionTitle: '\u5bc6\u4fdd\u95ee\u9898',
+    securityQuestionConfigured: '\u5df2\u8bbe\u7f6e\u5bc6\u4fdd\u95ee\u9898\u3002',
+    securityQuestionUnsetHint: '\u8bf7\u8bbe\u7f6e\u5bc6\u4fdd\u95ee\u9898\uff0c\u7528\u4e8e\u627e\u56de\u5bc6\u7801\u3002',
+    securityQuestionLabel: '\u5bc6\u4fdd\u95ee\u9898',
+    securityQuestionPlaceholder: '\u4f8b\u5982\uff1a\u4f60\u7684\u7b2c\u4e00\u95e8\u8bfe\u7a0b\u540d\u79f0',
+    securityAnswerLabel: '\u5bc6\u4fdd\u7b54\u6848',
+    securityAnswerPlaceholder: '\u8bf7\u8f93\u5165\u5bc6\u4fdd\u7b54\u6848',
+    securityQuestionUpdateHint: '\u4f60\u53ef\u4ee5\u968f\u65f6\u66f4\u65b0\u5bc6\u4fdd\u95ee\u9898\u3002',
+    securityQuestionSetHint: '\u73b0\u5728\u8bbe\u7f6e\uff0c\u65b9\u4fbf\u540e\u7eed\u627e\u56de\u5bc6\u7801\u3002',
+    securitySaving: '\u4fdd\u5b58\u4e2d...',
+    securityUpdateButton: '\u66f4\u65b0\u5bc6\u4fdd\u95ee\u9898',
+    securitySaveButton: '\u4fdd\u5b58\u5bc6\u4fdd\u95ee\u9898',
+    securityQuestionMinLength: '\u5bc6\u4fdd\u95ee\u9898\u81f3\u5c11 2 \u4e2a\u5b57\u7b26\u3002',
+    securityAnswerMinLength: '\u5bc6\u4fdd\u7b54\u6848\u81f3\u5c11 2 \u4e2a\u5b57\u7b26\u3002',
+    securitySaveSuccess: '\u5bc6\u4fdd\u95ee\u9898\u4fdd\u5b58\u6210\u529f\u3002',
+    securitySaveErrorPrefix: '\u4fdd\u5b58\u5bc6\u4fdd\u95ee\u9898\u5931\u8d25\uff1a'
 };
 
 const RESOURCE_TYPE_OPTIONS = [
@@ -104,40 +163,15 @@ function formatDateTime(value) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
 }
 
-function normalizeStatus(item) {
-    if (item?.score !== null && item?.score !== undefined) {
-        return 'graded';
-    }
-    if (item?.submit_time) {
-        return 'submitted';
-    }
-    if (item?.student_exp_id) {
-        return 'in-progress';
-    }
-
-    const rawStatus = String(item?.status || '').toLowerCase();
-    if (rawStatus.includes('graded')) {
-        return 'graded';
-    }
-    if (rawStatus.includes('submit')) {
-        return 'submitted';
-    }
-    if (rawStatus.includes('progress')) {
-        return 'in-progress';
-    }
-    return 'not-started';
-}
-
-function getStatusMeta(item) {
-    const key = normalizeStatus(item);
-    const map = {
-        'not-started': { text: TEXT.statusNotStarted, className: 'status-not-started' },
-        'in-progress': { text: TEXT.statusInProgress, className: 'status-in-progress' },
-        submitted: { text: TEXT.statusSubmitted, className: 'status-submitted' },
-        graded: { text: TEXT.statusGraded, className: 'status-graded' }
-    };
-
-    return { key, ...(map[key] || map['not-started']) };
+function buildQueryString(params) {
+    const search = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (!key) return;
+        const normalized = value === undefined || value === null ? '' : String(value).trim();
+        if (!normalized) return;
+        search.set(key, normalized);
+    });
+    return search.toString();
 }
 
 function buildCourseKeywordText(course) {
@@ -171,20 +205,60 @@ function getCourseIconMeta(course) {
     return { label: 'LAB', themeClass: 'theme-generic' };
 }
 
-function getTeacherName(course) {
-    const teacherName = String(course?.created_by || '').trim();
-    return teacherName || TEXT.unknownTeacher;
+function hashString(value) {
+    const text = String(value || '');
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+        hash = ((hash << 5) - hash) + text.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+}
+
+function resolveCourseCover(item) {
+    const seed = String(
+        item?.offeringId
+        || item?.offeringCode
+        || item?.joinCode
+        || item?.templateCourseId
+        || item?.courseName
+        || ''
+    ).trim();
+    const index = hashString(seed || 'student-cover-seed') % SYSTEM_COVERS.length;
+    return SYSTEM_COVERS[index];
+}
+
+function progressStatusKey(status) {
+    const value = String(status || '').trim().toLowerCase();
+    if (!value) return 'not-started';
+    if (value.includes('\u8bc4\u5206') || value.includes('graded')) return 'graded';
+    if (value.includes('\u63d0\u4ea4') || value.includes('submit')) return 'submitted';
+    if (value.includes('\u8fdb\u884c') || value.includes('progress') || value.includes('started')) return 'in-progress';
+    return 'not-started';
+}
+
+function formatStatusLabel(status) {
+    const key = progressStatusKey(status);
+    if (key === 'graded') return TEXT.statusGraded;
+    if (key === 'submitted') return TEXT.statusSubmitted;
+    if (key === 'in-progress') return TEXT.statusInProgress;
+    return TEXT.statusNotStarted;
 }
 
 function StudentCourseList({ username, onLogout }) {
     const navigate = useNavigate();
     const [coursesWithStatus, setCoursesWithStatus] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [pdfFiles, setPdfFiles] = useState({});
+    const [loadingOfferingExperiments, setLoadingOfferingExperiments] = useState(false);
     const [activeModule, setActiveModule] = useState('courses');
     const [selectedCourseKey, setSelectedCourseKey] = useState(
         () => sessionStorage.getItem(SELECTED_COURSE_CACHE_KEY) || ''
     );
+    const [offeringExperiments, setOfferingExperiments] = useState([]);
+    const [joinByCode, setJoinByCode] = useState('');
+    const [homeKeyword, setHomeKeyword] = useState('');
+    const [detailMenu, setDetailMenu] = useState('assignments');
+    const [assignmentKeyword, setAssignmentKeyword] = useState('');
     const [profile, setProfile] = useState(() => ({
         real_name: localStorage.getItem('real_name') || '',
         class_name: localStorage.getItem('class_name') || '',
@@ -193,19 +267,9 @@ function StudentCourseList({ username, onLogout }) {
         admission_year: localStorage.getItem('admission_year') || ''
     }));
     const realName = profile.real_name || username || '';
-    const studentClass = profile.class_name || '';
     const studentId = profile.student_id || username || '';
-    const classDisplay = studentClass || TEXT.unknownClass;
-    const moduleLabel = activeModule === 'courses'
-        ? TEXT.moduleLabel
-        : activeModule === 'resources'
-            ? TEXT.resourceModuleLabel
-            : TEXT.profileModuleLabel;
-    const breadcrumbLabel = activeModule === 'courses'
-        ? TEXT.breadcrumbCurrent
-        : activeModule === 'resources'
-            ? TEXT.resourceBreadcrumbCurrent
-            : TEXT.profileBreadcrumbCurrent;
+    const moduleLabel = activeModule === 'courses' ? TEXT.moduleLabel : TEXT.profileModuleLabel;
+    const breadcrumbLabel = activeModule === 'courses' ? TEXT.breadcrumbCurrent : TEXT.profileBreadcrumbCurrent;
 
     useEffect(() => {
         loadCoursesWithStatus();
@@ -214,49 +278,27 @@ function StudentCourseList({ username, onLogout }) {
     }, []);
 
     const groupedCourses = useMemo(() => {
-        const groups = new Map();
-
-        coursesWithStatus.forEach((item) => {
-            const course = item?.course || {};
-            const rawCourseId = String(course.course_id || '').trim();
-            const rawCourseName = String(course.course_name || '').trim();
-            const fallbackName = String(course.title || '').trim() || TEXT.courseUntitled;
-            const courseName = rawCourseName || fallbackName;
-            const key = rawCourseId ? `id:${rawCourseId}` : `name:${courseName.toLowerCase()}`;
-
-            if (!groups.has(key)) {
-                groups.set(key, {
-                    key,
-                    courseId: rawCourseId,
-                    courseName,
-                    description: String(course.description || '').trim(),
-                    teacherName: getTeacherName(course),
-                    tags: [],
-                    experiments: [],
-                });
-            }
-
-            const group = groups.get(key);
-            group.experiments.push(item);
-
-            const tags = Array.isArray(course.tags) ? course.tags : [];
-            tags.forEach((tag) => {
-                if (!group.tags.includes(tag)) {
-                    group.tags.push(tag);
-                }
-            });
-
-            const description = String(course.description || '').trim();
-            if (!group.description && description) {
-                group.description = description;
-            }
-
-            if (group.teacherName === TEXT.unknownTeacher) {
-                group.teacherName = getTeacherName(course);
-            }
-        });
-
-        return Array.from(groups.values()).sort((a, b) => a.courseName.localeCompare(b.courseName, 'zh-Hans-CN'));
+        const rows = Array.isArray(coursesWithStatus) ? coursesWithStatus : [];
+        return rows
+            .map((item) => ({
+                key: String(item?.offering_id || ''),
+                offeringId: String(item?.offering_id || ''),
+                offeringCode: String(item?.offering_code || '').trim(),
+                joinCode: String(item?.join_code || '').trim(),
+                term: String(item?.term || '').trim(),
+                major: String(item?.major || '').trim(),
+                className: String(item?.class_name || '').trim(),
+                offeringStatus: String(item?.status || 'active').trim(),
+                memberStatus: String(item?.member_status || '').trim() || 'active',
+                memberRole: String(item?.member_role || '').trim(),
+                templateCourseId: String(item?.template_course_id || '').trim(),
+                courseName: String(item?.template_course_name || '').trim() || TEXT.courseUntitled,
+                description: String(item?.template_course_description || '').trim(),
+                teacherName: String(item?.created_by || '').trim() || TEXT.unknownTeacher,
+                raw: item,
+            }))
+            .filter((item) => item.offeringId)
+            .sort((a, b) => String(a.joinCode || a.offeringCode || '').localeCompare(String(b.joinCode || b.offeringCode || ''), 'zh-Hans-CN'));
     }, [coursesWithStatus]);
 
     const selectedCourse = useMemo(
@@ -264,7 +306,44 @@ function StudentCourseList({ username, onLogout }) {
         [groupedCourses, selectedCourseKey]
     );
 
-    const selectedCourseExperiments = selectedCourse?.experiments || [];
+    const selectedCourseExperiments = offeringExperiments;
+    const filteredGroupedCourses = useMemo(() => {
+        const needle = String(homeKeyword || '').trim().toLowerCase();
+        if (!needle) return groupedCourses;
+        return groupedCourses.filter((item) => {
+            const text = [
+                item.courseName,
+                item.description,
+                item.teacherName,
+                item.className,
+                item.joinCode,
+                item.offeringCode,
+            ].join(' ').toLowerCase();
+            return text.includes(needle);
+        });
+    }, [groupedCourses, homeKeyword]);
+
+    const filteredSelectedCourseExperiments = useMemo(() => {
+        const rows = Array.isArray(selectedCourseExperiments) ? selectedCourseExperiments : [];
+        const needle = String(assignmentKeyword || '').trim().toLowerCase();
+        if (!needle) return rows;
+        return rows.filter((item) => {
+            const text = [
+                item?.title,
+                item?.description,
+                Array.isArray(item?.tags) ? item.tags.join(' ') : '',
+            ].join(' ').toLowerCase();
+            return text.includes(needle);
+        });
+    }, [assignmentKeyword, selectedCourseExperiments]);
+
+    useEffect(() => {
+        if (!selectedCourse?.offeringId) {
+            return;
+        }
+        loadOfferingExperiments(selectedCourse.offeringId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedCourse?.offeringId]);
 
     useEffect(() => {
         if (selectedCourseKey) {
@@ -278,7 +357,7 @@ function StudentCourseList({ username, onLogout }) {
         setLoading(true);
         try {
             const response = await axios.get(
-                `${API_BASE_URL}/api/student/courses-with-status?student_id=${username}`
+                `${API_BASE_URL}/api/student/offerings?student_id=${username}`
             );
             setCoursesWithStatus(response.data || []);
         } catch (error) {
@@ -291,13 +370,84 @@ function StudentCourseList({ username, onLogout }) {
 
     useEffect(() => {
         if (!selectedCourseKey) {
+            setOfferingExperiments([]);
             return;
         }
         if (!groupedCourses.some((item) => item.key === selectedCourseKey)) {
             setSelectedCourseKey('');
+            setOfferingExperiments([]);
             sessionStorage.removeItem(SELECTED_COURSE_CACHE_KEY);
         }
     }, [groupedCourses, selectedCourseKey]);
+
+    useEffect(() => {
+        if (!selectedCourseKey) {
+            setDetailMenu('assignments');
+            setAssignmentKeyword('');
+            return;
+        }
+        setDetailMenu('assignments');
+        setAssignmentKeyword('');
+    }, [selectedCourseKey]);
+
+    const loadOfferingExperiments = async (offeringId) => {
+        const normalized = String(offeringId || '').trim();
+        if (!normalized) {
+            setOfferingExperiments([]);
+            return;
+        }
+        setLoadingOfferingExperiments(true);
+        try {
+            const response = await axios.get(`${API_BASE_URL}/api/student/offerings/${normalized}/experiments`, {
+                params: { student_id: username }
+            });
+            setOfferingExperiments(Array.isArray(response.data) ? response.data : []);
+        } catch (error) {
+            console.error('Failed to load offering experiments:', error);
+            setOfferingExperiments([]);
+            alert(error.response?.data?.detail || TEXT.loadError);
+        } finally {
+            setLoadingOfferingExperiments(false);
+        }
+    };
+
+    const openOffering = (offeringId) => {
+        setSelectedCourseKey(offeringId);
+        setDetailMenu('assignments');
+        setAssignmentKeyword('');
+    };
+
+    const handleJoinByCode = async () => {
+        const joinCode = String(joinByCode || '').trim();
+        if (!joinCode) {
+            return;
+        }
+        try {
+            await axios.post(`${API_BASE_URL}/api/student/join-by-code`, {
+                student_id: username,
+                join_code: joinCode
+            });
+            setJoinByCode('');
+            await loadCoursesWithStatus();
+        } catch (error) {
+            alert(error.response?.data?.detail || TEXT.loadError);
+        }
+    };
+
+    const handleLeaveOffering = async (offeringId) => {
+        try {
+            await axios.post(`${API_BASE_URL}/api/student/offerings/${offeringId}/leave`, {
+                student_id: username
+            });
+            if (selectedCourseKey === offeringId) {
+                setSelectedCourseKey('');
+                setOfferingExperiments([]);
+            }
+            await loadCoursesWithStatus();
+        } catch (error) {
+            alert(error.response?.data?.detail || TEXT.loadError);
+        }
+    };
 
     const loadStudentProfileIfNeeded = async () => {
         if (!username) {
@@ -339,60 +489,19 @@ function StudentCourseList({ username, onLogout }) {
         }
     };
 
-    const startOrContinueCourse = async (courseData) => {
+    const startOrContinueCourse = async (experiment) => {
         try {
-            if (!courseData.student_exp_id) {
-                await axios.post(
-                    `${API_BASE_URL}/api/student-experiments/start/${courseData.course.id}?student_id=${username}`
-                );
+            const experimentId = String(experiment?.id || '').trim();
+            if (!experimentId) {
+                return;
             }
-            navigate(`/workspace/${courseData.course.id}`);
+            await axios.post(
+                `${API_BASE_URL}/api/student-experiments/start/${experimentId}?student_id=${username}`
+            ).catch(() => null);
+            navigate(`/workspace/${experimentId}`);
         } catch (error) {
             console.error('Failed to start experiment:', error);
             alert(TEXT.startError);
-        }
-    };
-
-    const handlePdfFileChange = (studentExpId, file) => {
-        setPdfFiles((prev) => ({
-            ...prev,
-            [studentExpId]: file || null
-        }));
-    };
-
-    const submitExperiment = async (studentExpId) => {
-        if (!window.confirm(TEXT.confirmSubmit)) {
-            return;
-        }
-
-        try {
-            await axios.post(
-                `${API_BASE_URL}/api/student-experiments/${studentExpId}/submit`,
-                { notebook_content: '' }
-            );
-
-            const selectedPdf = pdfFiles[studentExpId];
-            if (selectedPdf) {
-                const formData = new FormData();
-                formData.append('file', selectedPdf);
-                await axios.post(
-                    `${API_BASE_URL}/api/student-experiments/${studentExpId}/pdf`,
-                    formData,
-                    { headers: { 'Content-Type': 'multipart/form-data' } }
-                );
-            }
-
-            setPdfFiles((prev) => {
-                const next = { ...prev };
-                delete next[studentExpId];
-                return next;
-            });
-
-            alert(selectedPdf ? TEXT.submitSuccessWithPdf : TEXT.submitSuccess);
-            loadCoursesWithStatus();
-        } catch (error) {
-            console.error('Submit failed:', error);
-            alert(`${TEXT.submitErrorPrefix}${error.response?.data?.detail || error.message}`);
         }
     };
 
@@ -415,9 +524,46 @@ function StudentCourseList({ username, onLogout }) {
         window.location.reload();
     };
 
+    const openJupyterHub = async () => {
+        try {
+            const resp = await axios.get(`${API_BASE_URL}/api/jupyterhub/auto-login-url`, { params: { username } });
+            const autoLoginUrl = resp?.data?.jupyter_url;
+            if (autoLoginUrl) {
+                const launchUrl = persistJupyterTokenFromUrl(autoLoginUrl);
+                window.open(launchUrl, '_blank', 'noopener,noreferrer');
+                return;
+            }
+        } catch (error) {
+            // fallback below
+        }
+
+        if (JUPYTERHUB_URL) {
+            window.open(JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+            return;
+        }
+
+        try {
+            const resp = await fetch(DEFAULT_JUPYTERHUB_HEALTH_URL, { method: 'GET', credentials: 'omit' });
+            if (resp.ok) {
+                window.open(DEFAULT_JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+                return;
+            }
+        } catch (error) {
+            // ignore
+        }
+
+        window.open(LEGACY_JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+    };
+
     const handleProfileUpdated = useCallback((nextProfile) => {
         setProfile((prev) => ({ ...prev, ...nextProfile }));
     }, []);
+
+    const sideMenus = [
+        { key: 'assignments', label: TEXT.detailAssignments },
+        { key: 'resources', label: TEXT.detailResources },
+    ];
+    const selectedCourseCover = selectedCourse ? resolveCourseCover(selectedCourse) : null;
 
     return (
         <div className="lab-page-shell">
@@ -432,9 +578,12 @@ function StudentCourseList({ username, onLogout }) {
                 <div className="lab-user-block">
                     <span className="lab-user-avatar">{(realName || username || 'U').slice(0, 1).toUpperCase()}</span>
                     <div className="lab-user-text">
-                        <span className="lab-user-name">{`${TEXT.namePrefix}\uff1a${realName || username}`}</span>
-                        <span className="lab-user-meta">{`${TEXT.classPrefix}\uff1a${classDisplay}  ${TEXT.studentIdPrefix}\uff1a${studentId}`}</span>
+                        <span className="lab-user-name">{`${TEXT.studentAccountPrefix}${username || '-'}`}</span>
+                        <span className="lab-user-meta">{`${TEXT.studentRoleLabel}  ${TEXT.studentIdPrefix}\uff1a${studentId || '-'}`}</span>
                     </div>
+                    <button type="button" className="lab-jhub-btn" onClick={openJupyterHub}>
+                        {TEXT.jupyterHub}
+                    </button>
                     <button type="button" className="lab-logout-btn" onClick={handleLogout}>
                         {TEXT.logout}
                     </button>
@@ -446,17 +595,6 @@ function StudentCourseList({ username, onLogout }) {
                     <div className="lab-sidebar-title">{TEXT.sidebarTitle}</div>
                     <button
                         type="button"
-                        className={`lab-menu-item ${activeModule === 'profile' ? 'active' : ''}`}
-                        onClick={() => setActiveModule('profile')}
-                        aria-current={activeModule === 'profile' ? 'page' : undefined}
-                    >
-                        <span className="lab-menu-icon">
-                            <ProfileModuleIcon />
-                        </span>
-                        <span>{TEXT.profileModuleLabel}</span>
-                    </button>
-                    <button
-                        type="button"
                         className={`lab-menu-item ${activeModule === 'courses' ? 'active' : ''}`}
                         onClick={() => setActiveModule('courses')}
                         aria-current={activeModule === 'courses' ? 'page' : undefined}
@@ -464,18 +602,18 @@ function StudentCourseList({ username, onLogout }) {
                         <span className="lab-menu-icon">
                             <LabModuleIcon />
                         </span>
-                        <span>{TEXT.moduleLabel}</span>
+                        <span className="lab-menu-text"><strong>{TEXT.moduleLabel}</strong><small>{TEXT.moduleTip}</small></span>
                     </button>
                     <button
                         type="button"
-                        className={`lab-menu-item ${activeModule === 'resources' ? 'active' : ''}`}
-                        onClick={() => setActiveModule('resources')}
-                        aria-current={activeModule === 'resources' ? 'page' : undefined}
+                        className={`lab-menu-item ${activeModule === 'profile' ? 'active' : ''}`}
+                        onClick={() => setActiveModule('profile')}
+                        aria-current={activeModule === 'profile' ? 'page' : undefined}
                     >
                         <span className="lab-menu-icon">
-                            <ResourceModuleIcon />
+                            <ProfileModuleIcon />
                         </span>
-                        <span>{TEXT.resourceModuleLabel}</span>
+                        <span className="lab-menu-text"><strong>{TEXT.profileModuleLabel}</strong><small>{TEXT.profileModuleTip}</small></span>
                     </button>
                 </aside>
 
@@ -487,139 +625,186 @@ function StudentCourseList({ username, onLogout }) {
                         <>
                             {loading ? (
                                 <div className="lab-loading">{TEXT.loading}</div>
-                            ) : groupedCourses.length === 0 ? (
-                                <div className="lab-empty">{TEXT.empty}</div>
-                            ) : !selectedCourse ? (
-                                <div className="lab-card-grid">
-                                    {groupedCourses.map((courseGroup) => {
-                                        const iconMeta = getCourseIconMeta({
-                                            title: courseGroup.courseName,
-                                            description: courseGroup.description,
-                                            tags: courseGroup.tags,
-                                        });
-                                        const total = courseGroup.experiments.length;
-                                        const inProgress = courseGroup.experiments.filter((item) => normalizeStatus(item) === 'in-progress').length;
-                                        const completed = courseGroup.experiments.filter((item) => {
-                                            const statusKey = normalizeStatus(item);
-                                            return statusKey === 'submitted' || statusKey === 'graded';
-                                        }).length;
-
-                                        return (
-                                            <article className="lab-course-card" key={courseGroup.key}>
-                                                <div className={`lab-course-logo ${iconMeta.themeClass}`} aria-hidden>
-                                                    <span>{iconMeta.label}</span>
-                                                </div>
-
-                                                <h3>{courseGroup.courseName}</h3>
-                                                <p className="lab-course-desc">{courseGroup.description || TEXT.noDescription}</p>
-                                                <p className="lab-course-teacher">{`${TEXT.teacherPrefix}${courseGroup.teacherName}`}</p>
-
-                                                <div className="lab-chip-row">
-                                                    {(courseGroup.tags || []).map((tag) => (
-                                                        <span key={tag} className="lab-chip">{tag}</span>
-                                                    ))}
-                                                </div>
-
-                                                <div className="lab-course-summary">
-                                                    {`${TEXT.courseCountPrefix}${total}  ${TEXT.inProgressCountPrefix}${inProgress}  ${TEXT.completedCountPrefix}${completed}`}
-                                                </div>
-
-                                                <button
-                                                    type="button"
-                                                    className="lab-open-btn"
-                                                    onClick={() => setSelectedCourseKey(courseGroup.key)}
-                                                >
-                                                    {TEXT.chooseCourse}
-                                                </button>
-                                            </article>
-                                        );
-                                    })}
-                                </div>
                             ) : (
                                 <>
-                                    <div className="lab-course-header">
-                                        <button type="button" className="lab-back-btn" onClick={() => setSelectedCourseKey('')}>
-                                            {TEXT.backToCourseLibrary}
-                                        </button>
-                                        <span className="lab-course-summary">
-                                            {`${selectedCourse.courseName} · ${TEXT.courseCountPrefix}${selectedCourseExperiments.length}`}
-                                        </span>
-                                    </div>
+                                    {!selectedCourse ? (
+                                        <div className="lab-course-home">
+                                            <div className="lab-course-home-toolbar">
+                                                <div className="lab-course-home-actions">
+                                                    <div className="lab-offering-join-row">
+                                                        <input
+                                                            type="text"
+                                                            placeholder={TEXT.joinByCodePlaceholder}
+                                                            value={joinByCode}
+                                                            onChange={(event) => setJoinByCode(event.target.value)}
+                                                        />
+                                                        <button type="button" onClick={handleJoinByCode}>{TEXT.joinByCodeButton}</button>
+                                                    </div>
+                                                </div>
+                                                <div className="lab-course-search-box">
+                                                    <input
+                                                        type="text"
+                                                        placeholder={TEXT.homeSearchPlaceholder}
+                                                        value={homeKeyword}
+                                                        onChange={(event) => setHomeKeyword(event.target.value)}
+                                                    />
+                                                </div>
+                                            </div>
 
-                                    {selectedCourseExperiments.length === 0 ? (
-                                        <div className="lab-empty">{TEXT.empty}</div>
+                                            {filteredGroupedCourses.length === 0 ? (
+                                                <div className="lab-empty">{groupedCourses.length === 0 ? TEXT.empty : TEXT.noSearchResult}</div>
+                                            ) : (
+                                                <div className="lab-course-home-grid">
+                                                    {filteredGroupedCourses.map((courseGroup) => {
+                                                        const cover = resolveCourseCover(courseGroup);
+                                                        const isActiveMember = String(courseGroup.memberStatus || '').toLowerCase() === 'active';
+                                                        return (
+                                                            <article className="lab-course-home-card" key={courseGroup.key}>
+                                                                <div className="lab-course-home-cover" aria-hidden>
+                                                                    <img src={cover.src} alt={cover.label} />
+                                                                    <span>{TEXT.studentCoverMark}</span>
+                                                                </div>
+                                                                <strong>{courseGroup.courseName}</strong>
+                                                                <span>{courseGroup.teacherName}</span>
+                                                                <p className="lab-course-home-meta">{`${TEXT.classPrefix}\uff1a${courseGroup.className || TEXT.unknownClass}`}</p>
+                                                                {isActiveMember ? (
+                                                                    <div className="lab-course-home-card-actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="lab-course-open-btn"
+                                                                            onClick={() => openOffering(courseGroup.offeringId)}
+                                                                        >
+                                                                            {TEXT.viewOfferingExperiments}
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="lab-course-leave-btn"
+                                                                            onClick={() => handleLeaveOffering(courseGroup.offeringId)}
+                                                                        >
+                                                                            {TEXT.leaveCourse}
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="lab-offering-left-tag">{TEXT.rejoinCourse}</div>
+                                                                )}
+                                                            </article>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
                                     ) : (
-                                        <div className="lab-card-grid">
-                                            {selectedCourseExperiments.map((item) => {
-                                                const statusMeta = getStatusMeta(item);
-                                                const canSubmit = statusMeta.key === 'in-progress' && !!item.student_exp_id;
-                                                const iconMeta = getCourseIconMeta(item.course);
-
-                                                return (
-                                                    <article className="lab-course-card" key={item.course.id}>
-                                                        <div className={`lab-course-logo ${iconMeta.themeClass}`} aria-hidden>
-                                                            <span>{iconMeta.label}</span>
-                                                        </div>
-
-                                                        <h3>{item.course.title}</h3>
-                                                        <div className={`lab-status-badge ${statusMeta.className}`}>
-                                                            {statusMeta.text}
-                                                        </div>
-
-                                                        <p className="lab-course-desc">{item.course.description || TEXT.noDescription}</p>
-                                                        <p className="lab-course-teacher">{`${TEXT.teacherPrefix}${getTeacherName(item.course)}`}</p>
-
-                                                        <div className="lab-chip-row">
-                                                            {(item.course.tags || []).map((tag) => (
-                                                                <span key={tag} className="lab-chip">{tag}</span>
-                                                            ))}
-                                                        </div>
-
-                                                        <AttachmentPanel courseId={item.course.id} />
-
-                                                        {item.score !== null && item.score !== undefined ? (
-                                                            <div className="lab-score-box">{`${TEXT.scorePrefix}${item.score}`}</div>
-                                                        ) : null}
-
+                                        <div className="lab-course-detail-shell">
+                                            <aside className="lab-course-detail-sidebar">
+                                                <button
+                                                    type="button"
+                                                    className="lab-course-detail-cover"
+                                                    onClick={() => setSelectedCourseKey('')}
+                                                >
+                                                    <div className="lab-course-home-cover">
+                                                        <img src={selectedCourseCover?.src} alt={selectedCourseCover?.label || 'course-cover'} />
+                                                        <span>{TEXT.studentCoverMark}</span>
+                                                    </div>
+                                                    <div className="lab-course-detail-cover-links">
+                                                        <span>{TEXT.detailMenuBack}</span>
+                                                        <span>{TEXT.detailMenuPortal}</span>
+                                                    </div>
+                                                </button>
+                                                <div className="lab-course-detail-title">{selectedCourse.courseName}</div>
+                                                <div className="lab-course-detail-menu">
+                                                    {sideMenus.map((item) => (
                                                         <button
+                                                            key={item.key}
                                                             type="button"
-                                                            className="lab-open-btn"
-                                                            onClick={() => startOrContinueCourse(item)}
+                                                            className={detailMenu === item.key ? 'active' : ''}
+                                                            onClick={() => setDetailMenu(item.key)}
                                                         >
-                                                            {TEXT.openExperiment}
+                                                            <span className="dot" />
+                                                            <span>{item.label}</span>
                                                         </button>
-
-                                                        {canSubmit ? (
-                                                            <div className="lab-submit-panel">
-                                                                <label htmlFor={`pdf-${item.student_exp_id}`}>{TEXT.uploadPdf}</label>
-                                                                <input
-                                                                    id={`pdf-${item.student_exp_id}`}
-                                                                    type="file"
-                                                                    accept=".pdf,application/pdf"
-                                                                    onChange={(e) => handlePdfFileChange(item.student_exp_id, e.target.files?.[0])}
-                                                                />
-                                                                {pdfFiles[item.student_exp_id] ? (
-                                                                    <p className="lab-pdf-name">{pdfFiles[item.student_exp_id].name}</p>
-                                                                ) : null}
-                                                                <button
-                                                                    type="button"
-                                                                    className="lab-submit-btn"
-                                                                    onClick={() => submitExperiment(item.student_exp_id)}
-                                                                >
-                                                                    {TEXT.submitHomework}
-                                                                </button>
+                                                    ))}
+                                                </div>
+                                            </aside>
+                                            <main className="lab-course-detail-main">
+                                                {detailMenu === 'resources' ? (
+                                                    <div className="lab-course-pane">
+                                                        <StudentResourcePanel
+                                                            username={username}
+                                                            courseId={selectedCourse?.templateCourseId || ''}
+                                                            countPrefix={TEXT.resourceCountPrefixInCourse}
+                                                            countSuffix=""
+                                                            emptyText={TEXT.noResourcesInCourse}
+                                                            searchPlaceholder={TEXT.resourceSearchPlaceholderInCourse}
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="lab-course-pane">
+                                                        <div className="lab-course-pane-toolbar">
+                                                            <div className="lab-course-home-actions">
+                                                                <span className="lab-course-summary">{`${TEXT.assignmentCountPrefix}${selectedCourseExperiments.length}`}</span>
                                                             </div>
-                                                        ) : null}
-                                                    </article>
-                                                );
-                                            })}
+                                                            <div className="lab-course-search-box">
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder={TEXT.assignmentSearchPlaceholder}
+                                                                    value={assignmentKeyword}
+                                                                    onChange={(event) => setAssignmentKeyword(event.target.value)}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        {loadingOfferingExperiments ? (
+                                                            <div className="lab-loading">{TEXT.loading}</div>
+                                                        ) : filteredSelectedCourseExperiments.length === 0 ? (
+                                                            <div className="lab-empty">
+                                                                {selectedCourseExperiments.length === 0 ? TEXT.noAssignments : TEXT.noSearchResult}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="lab-card-grid">
+                                                                {filteredSelectedCourseExperiments.map((item) => {
+                                                                    const iconMeta = getCourseIconMeta(item);
+                                                                    const statusKey = progressStatusKey(item?.status);
+                                                                    const numericScore = Number(item?.score);
+                                                                    const hasScore = Number.isFinite(numericScore);
+                                                                    return (
+                                                                        <article className="lab-course-card" key={item.id}>
+                                                                            <div className={`lab-course-logo ${iconMeta.themeClass}`} aria-hidden>
+                                                                                <span>{iconMeta.label}</span>
+                                                                            </div>
+                                                                            <h3>{item.title}</h3>
+                                                                            <p className="lab-course-desc">{item.description || TEXT.noDescription}</p>
+                                                                            <p className="lab-course-teacher">
+                                                                                {`${TEXT.teacherPrefix}${String(item?.created_by || '').trim() || selectedCourse.teacherName || TEXT.unknownTeacher}`}
+                                                                            </p>
+                                                                            <span className={`lab-status-badge status-${statusKey}`}>{formatStatusLabel(item?.status)}</span>
+                                                                            {hasScore ? (
+                                                                                <span className="lab-score-box">{`${TEXT.scorePrefix}${numericScore}`}</span>
+                                                                            ) : null}
+                                                                            <div className="lab-chip-row">
+                                                                                {(item.tags || []).map((tag) => (
+                                                                                    <span key={`${item.id}-${tag}`} className="lab-chip">{tag}</span>
+                                                                                ))}
+                                                                            </div>
+                                                                            <AttachmentPanel courseId={item.id} />
+                                                                            <button
+                                                                                type="button"
+                                                                                className="lab-open-btn"
+                                                                                onClick={() => startOrContinueCourse(item)}
+                                                                            >
+                                                                                {TEXT.openExperiment}
+                                                                            </button>
+                                                                        </article>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </main>
                                         </div>
                                     )}
                                 </>
                             )}
                         </>
-                    ) : activeModule === 'resources' ? (
-                        <StudentResourcePanel username={username} />
                     ) : (
                         <StudentProfilePanel
                             username={username}
@@ -680,7 +865,15 @@ function AttachmentPanel({ courseId }) {
     );
 }
 
-function StudentResourcePanel({ username }) {
+function StudentResourcePanel({
+    username,
+    courseId = '',
+    offeringId = '',
+    countPrefix = TEXT.resourceTotalPrefix,
+    countSuffix = TEXT.resourceTotalSuffix,
+    emptyText = TEXT.resourceEmpty,
+    searchPlaceholder = TEXT.resourceNamePlaceholder,
+}) {
     const [resources, setResources] = useState([]);
     const [resourceLoading, setResourceLoading] = useState(false);
     const [searchName, setSearchName] = useState('');
@@ -690,12 +883,29 @@ function StudentResourcePanel({ username }) {
     const [detailLoading, setDetailLoading] = useState(false);
     const [detailData, setDetailData] = useState(null);
 
+    const scopeParams = useMemo(() => {
+        const params = {
+            student_id: username,
+        };
+        if (courseId) params.course_id = courseId;
+        if (offeringId) params.offering_id = offeringId;
+        return params;
+    }, [courseId, offeringId, username]);
+
+    const scopeQueryString = useMemo(() => buildQueryString(scopeParams), [scopeParams]);
+
     const loadResources = async ({ name = searchName, fileType = searchType } = {}) => {
+        if (!username || (!courseId && !offeringId)) {
+            setResources([]);
+            setTotalCount(0);
+            return;
+        }
+
         setResourceLoading(true);
         try {
             const response = await axios.get(`${API_BASE_URL}/api/student/resources`, {
                 params: {
-                    student_id: username,
+                    ...scopeParams,
                     name: name || undefined,
                     file_type: fileType || undefined
                 }
@@ -714,7 +924,7 @@ function StudentResourcePanel({ username }) {
     useEffect(() => {
         loadResources({ name: '', fileType: '' });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [username]);
+    }, [courseId, offeringId, username]);
 
     const openResourceDetail = async (resourceId) => {
         setDetailVisible(true);
@@ -722,7 +932,7 @@ function StudentResourcePanel({ username }) {
         setDetailData(null);
         try {
             const response = await axios.get(`${API_BASE_URL}/api/student/resources/${resourceId}`, {
-                params: { student_id: username }
+                params: scopeParams
             });
             setDetailData(response.data || null);
         } catch (error) {
@@ -740,7 +950,7 @@ function StudentResourcePanel({ username }) {
                 <div className="lab-resource-search">
                     <input
                         type="text"
-                        placeholder={TEXT.resourceNamePlaceholder}
+                        placeholder={searchPlaceholder}
                         value={searchName}
                         onChange={(event) => setSearchName(event.target.value)}
                     />
@@ -755,7 +965,7 @@ function StudentResourcePanel({ username }) {
                         {TEXT.resourceSearch}
                     </button>
                 </div>
-                <span className="lab-resource-total">{`${TEXT.resourceTotalPrefix} ${totalCount} ${TEXT.resourceTotalSuffix}`}</span>
+                <span className="lab-resource-total">{`${countPrefix}${totalCount}${countSuffix}`}</span>
             </div>
 
             <div className="lab-resource-table-wrap">
@@ -775,7 +985,7 @@ function StudentResourcePanel({ username }) {
                             </tr>
                         ) : resources.length === 0 ? (
                             <tr>
-                                <td colSpan="4" className="lab-resource-empty-row">{TEXT.resourceEmpty}</td>
+                                <td colSpan="4" className="lab-resource-empty-row">{emptyText}</td>
                             </tr>
                         ) : (
                             resources.map((resource) => (
@@ -794,7 +1004,7 @@ function StudentResourcePanel({ username }) {
                                         <button
                                             type="button"
                                             className="lab-resource-link download"
-                                            onClick={() => window.open(`${API_BASE_URL}/api/student/resources/${resource.id}/download?student_id=${encodeURIComponent(username)}`, '_blank')}
+                                            onClick={() => window.open(`${API_BASE_URL}/api/student/resources/${resource.id}/download?${scopeQueryString}`, '_blank')}
                                         >
                                             {TEXT.download}
                                         </button>
@@ -821,6 +1031,7 @@ function StudentResourcePanel({ username }) {
                                     detailData={detailData}
                                     accessQueryKey="student_id"
                                     accessQueryValue={username}
+                                    accessQueryParams={scopeParams}
                                     loadingText={TEXT.resourceLoading}
                                     emptyText={TEXT.noPreviewContent}
                                     unsupportedText={TEXT.unsupportedPreview}
@@ -832,7 +1043,7 @@ function StudentResourcePanel({ username }) {
                                 <button
                                     type="button"
                                     className="lab-resource-download-btn"
-                                    onClick={() => window.open(`${API_BASE_URL}/api/student/resources/${detailData.id}/download?student_id=${encodeURIComponent(username)}`, '_blank')}
+                                    onClick={() => window.open(`${API_BASE_URL}/api/student/resources/${detailData.id}/download?${scopeQueryString}`, '_blank')}
                                 >
                                     {TEXT.download}
                                 </button>
@@ -944,11 +1155,11 @@ function StudentProfilePanel({ username, profile, onProfileUpdated }) {
         const normalizedQuestion = String(securityQuestion || '').trim();
         const normalizedAnswer = String(securityAnswer || '').trim();
         if (normalizedQuestion.length < 2) {
-            alert('密保问题至少2个字符');
+            alert(TEXT.securityQuestionMinLength);
             return;
         }
         if (normalizedAnswer.length < 2) {
-            alert('密保答案至少2个字符');
+            alert(TEXT.securityAnswerMinLength);
             return;
         }
 
@@ -959,12 +1170,12 @@ function StudentProfilePanel({ username, profile, onProfileUpdated }) {
                 security_question: normalizedQuestion,
                 security_answer: normalizedAnswer
             });
-            alert(response.data?.message || '密保问题已保存');
+            alert(response.data?.message || TEXT.securitySaveSuccess);
             setSecurityQuestion(normalizedQuestion);
             setSecurityQuestionSet(true);
             setSecurityAnswer('');
         } catch (error) {
-            alert(`保存密保失败：${error.response?.data?.detail || error.message}`);
+            alert(`${TEXT.securitySaveErrorPrefix}${error.response?.data?.detail || error.message}`);
         } finally {
             setSecuritySubmitting(false);
         }
@@ -1004,12 +1215,12 @@ function StudentProfilePanel({ username, profile, onProfileUpdated }) {
             </div>
 
             <div className="lab-profile-card lab-profile-card--security">
-                <h3>账号与安全</h3>
+                <h3>{TEXT.profileSecurityTitle}</h3>
                 <div className="lab-security-layout">
                     <section className="lab-security-block">
                         <div className="lab-security-head">
                             <h4>{TEXT.profilePasswordTitle}</h4>
-                            <p>建议定期更新密码，保障账号安全。</p>
+                            <p>{TEXT.profilePasswordHint}</p>
                         </div>
                         <form className="lab-password-form lab-security-form" onSubmit={handleChangePassword}>
                             <label htmlFor="current-password">{TEXT.currentPassword}</label>
@@ -1053,37 +1264,37 @@ function StudentProfilePanel({ username, profile, onProfileUpdated }) {
 
                     <section className="lab-security-block">
                         <div className="lab-security-head">
-                            <h4>密保设置</h4>
-                            <p>{securityQuestionSet ? '已启用密保找回。' : '首次登录后建议尽快设置密保。'}</p>
+                            <h4>{TEXT.securityQuestionTitle}</h4>
+                            <p>{securityQuestionSet ? TEXT.securityQuestionConfigured : TEXT.securityQuestionUnsetHint}</p>
                         </div>
                         <form className="lab-password-form lab-security-form lab-security-form--qa" onSubmit={handleSaveSecurityQuestion}>
-                            <label htmlFor="security-question">密保问题</label>
+                            <label htmlFor="security-question">{TEXT.securityQuestionLabel}</label>
                             <input
                                 id="security-question"
                                 type="text"
                                 value={securityQuestion}
                                 onChange={(event) => setSecurityQuestion(event.target.value)}
-                                placeholder="例如：我最喜欢的老师名字？"
+                                placeholder={TEXT.securityQuestionPlaceholder}
                                 required
                             />
 
-                            <label htmlFor="security-answer">密保答案</label>
+                            <label htmlFor="security-answer">{TEXT.securityAnswerLabel}</label>
                             <input
                                 id="security-answer"
                                 type="text"
                                 value={securityAnswer}
                                 onChange={(event) => setSecurityAnswer(event.target.value)}
-                                placeholder="请输入密保答案"
+                                placeholder={TEXT.securityAnswerPlaceholder}
                                 required
                             />
 
                             <p className="lab-password-hint">
                                 {securityQuestionSet
-                                    ? '已设置密保问题，可在登录页通过密保找回密码。'
-                                    : '首次登录后建议先设置密保问题，避免忘记密码无法自助找回。'}
+                                    ? TEXT.securityQuestionUpdateHint
+                                    : TEXT.securityQuestionSetHint}
                             </p>
                             <button type="submit" className="lab-password-btn" disabled={securitySubmitting}>
-                                {securitySubmitting ? '保存中...' : (securityQuestionSet ? '更新密保问题' : '保存密保问题')}
+                                {securitySubmitting ? TEXT.securitySaving : (securityQuestionSet ? TEXT.securityUpdateButton : TEXT.securitySaveButton)}
                             </button>
                         </form>
                     </section>
@@ -1104,17 +1315,6 @@ function LabModuleIcon() {
     );
 }
 
-function ResourceModuleIcon() {
-    return (
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-            <rect x="4" y="3.5" width="16" height="17" rx="2.2" stroke="currentColor" strokeWidth="1.8"/>
-            <path d="M8 8H16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            <path d="M8 12H16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            <path d="M8 16H12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-        </svg>
-    );
-}
-
 function ProfileModuleIcon() {
     return (
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
@@ -1126,5 +1326,3 @@ function ProfileModuleIcon() {
 }
 
 export default StudentCourseList;
-
-

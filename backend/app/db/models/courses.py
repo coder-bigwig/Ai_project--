@@ -1,4 +1,4 @@
-from sqlalchemy import Index, String, Text, UniqueConstraint, text
+from sqlalchemy import Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..base import Base
@@ -8,7 +8,6 @@ from .mixins import TimestampVersionMixin
 class CourseORM(Base, TimestampVersionMixin):
     __tablename__ = "courses"
     __table_args__ = (
-        UniqueConstraint("created_by", "name", name="uq_courses_created_by_name"),
         Index("ix_courses_created_by_updated_at", "created_by", "updated_at"),
     )
 

@@ -52,10 +52,71 @@
     color: #303133;
 }
 
+.course-offering-panel {
+    border: 1px solid #e6ebf1;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+    background: #f9fbff;
+}
+
+.course-offering-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.course-offering-head strong {
+    color: #303133;
+}
+
+.course-offering-head span {
+    color: #606266;
+    font-size: 13px;
+}
+
 .user-management-actions {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+.add-class-trigger {
+    position: relative;
+    display: inline-flex;
+}
+
+.add-class-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 150px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid #e6ebf1;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(23, 33, 55, 0.12);
+    z-index: 20;
+}
+
+.add-class-trigger .add-class-dropdown button {
+    width: 100%;
+    text-align: left;
+    border-radius: 8px;
+    border: 1px solid #edf1f7;
+    background: #fff;
+    color: #303133;
+    padding: 10px 12px;
+}
+
+.add-class-trigger .add-class-dropdown button:hover {
+    background: #f7fbff;
+    color: #2f78df;
 }
 
 .user-management-actions button,
@@ -142,6 +203,10 @@
     cursor: pointer;
 }
 
+.user-table td button:last-child {
+    margin-right: 0;
+}
+
 .user-table td .danger-btn {
     background: #fef0f0;
     color: #f56c6c;
@@ -210,12 +275,48 @@
     flex: 1;
 }
 
+.course-code-tip {
+    margin-top: 8px;
+    color: #606266;
+    font-size: 13px;
+}
+
+.qr-modal {
+    width: min(560px, 92vw);
+}
+
+.qr-modal-code {
+    margin-bottom: 8px;
+    color: #303133;
+    font-weight: 600;
+}
+
+.qr-modal-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0 12px;
+}
+
+.qr-modal-url {
+    max-width: 100%;
+    word-break: break-all;
+    font-size: 12px;
+    color: #606266;
+    text-align: center;
+}
+
 .class-import-panel {
     border: 1px solid #e6ebf1;
     border-radius: 6px;
     padding: 12px;
     margin-bottom: 14px;
     background: #f9fbff;
+}
+
+.class-import-modal {
+    width: min(980px, 94vw);
 }
 
 .class-import-header {

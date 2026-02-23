@@ -7,8 +7,28 @@ import './ResourcePreviewContent.css';
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const MAX_SHEET_PREVIEW_ROWS = 200;
 
-function buildResourceUrl(path, queryKey, queryValue) {
-    return `${API_BASE_URL}${path}?${queryKey}=${encodeURIComponent(queryValue)}`;
+function buildResourceUrl(path, queryKey, queryValue, queryParams) {
+    const normalizedPath = String(path || '');
+    const params = new URLSearchParams();
+
+    if (queryParams && typeof queryParams === 'object') {
+        Object.entries(queryParams).forEach(([key, value]) => {
+            if (!key) return;
+            const normalizedValue = value === null || value === undefined ? '' : String(value).trim();
+            if (!normalizedValue) return;
+            params.set(key, normalizedValue);
+        });
+    } else if (queryKey) {
+        const normalizedValue = queryValue === null || queryValue === undefined ? '' : String(queryValue).trim();
+        if (normalizedValue) {
+            params.set(queryKey, normalizedValue);
+        }
+    }
+
+    const queryString = params.toString();
+    return queryString
+        ? `${API_BASE_URL}${normalizedPath}?${queryString}`
+        : `${API_BASE_URL}${normalizedPath}`;
 }
 
 function normalizeSheetRows(rawRows) {
@@ -35,10 +55,11 @@ function ResourcePreviewContent({
     detailData,
     accessQueryKey,
     accessQueryValue,
-    loadingText = '加载预览中...',
-    emptyText = '暂无可预览内容',
-    unsupportedText = '当前文件类型不支持在线预览，请下载查看。',
-    sheetRowLimitNotice = `仅展示前 ${MAX_SHEET_PREVIEW_ROWS} 行`,
+    accessQueryParams,
+    loadingText = '\u52a0\u8f7d\u9884\u89c8\u4e2d...',
+    emptyText = '\u6682\u65e0\u53ef\u9884\u89c8\u5185\u5bb9',
+    unsupportedText = '\u5f53\u524d\u6587\u4ef6\u7c7b\u578b\u4e0d\u652f\u6301\u5728\u7ebf\u9884\u89c8\uff0c\u8bf7\u4e0b\u8f7d\u540e\u67e5\u770b\u3002',
+    sheetRowLimitNotice = `\u4ec5\u5c55\u793a\u524d ${MAX_SHEET_PREVIEW_ROWS} \u884c`,
 }) {
     const [binaryLoading, setBinaryLoading] = useState(false);
     const [binaryError, setBinaryError] = useState('');
@@ -70,7 +91,7 @@ function ResourcePreviewContent({
             resetState();
             setBinaryLoading(true);
             try {
-                const downloadUrl = buildResourceUrl(detailData.download_url, accessQueryKey, accessQueryValue);
+                const downloadUrl = buildResourceUrl(detailData.download_url, accessQueryKey, accessQueryValue, accessQueryParams);
                 const response = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
                 if (cancelled) return;
 
@@ -99,7 +120,7 @@ function ResourcePreviewContent({
                 setActiveSheet(names[0] || '');
             } catch (error) {
                 if (!cancelled) {
-                    setBinaryError(error?.message || '预览加载失败');
+                    setBinaryError(error?.message || '\u9884\u89c8\u52a0\u8f7d\u5931\u8d25');
                 }
             } finally {
                 if (!cancelled) {
@@ -112,7 +133,7 @@ function ResourcePreviewContent({
         return () => {
             cancelled = true;
         };
-    }, [detailData, previewMode, accessQueryKey, accessQueryValue]);
+    }, [detailData, previewMode, accessQueryKey, accessQueryValue, accessQueryParams]);
 
     const activeSheetRows = useMemo(() => {
         if (!activeSheet) return [];
@@ -127,7 +148,7 @@ function ResourcePreviewContent({
         return (
             <iframe
                 title={`resource-preview-${detailData.id}`}
-                src={buildResourceUrl(detailData.preview_url, accessQueryKey, accessQueryValue)}
+                src={buildResourceUrl(detailData.preview_url, accessQueryKey, accessQueryValue, accessQueryParams)}
                 className="resource-preview-frame"
             />
         );
@@ -189,7 +210,7 @@ function ResourcePreviewContent({
                         <thead>
                             <tr>
                                 {headerRow.map((cell, index) => (
-                                    <th key={`head-${index}`}>{cell || `列${index + 1}`}</th>
+                                    <th key={`head-${index}`}>{cell || `\u5217${index + 1}`}</th>
                                 ))}
                             </tr>
                         </thead>

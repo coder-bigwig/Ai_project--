@@ -45,9 +45,40 @@ async def update_experiment(
     return await service.update_experiment(experiment_id, experiment)
 
 
-async def delete_experiment(experiment_id: str, db: Optional[AsyncSession] = Depends(get_db)):
+async def delete_experiment(
+    experiment_id: str,
+    teacher_username: str,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
     service = build_experiment_service(main_module=main, db=db)
-    return await service.delete_experiment(experiment_id)
+    return await service.delete_experiment(experiment_id, teacher_username=teacher_username)
+
+
+async def list_recycle_experiments(
+    teacher_username: str,
+    course_id: Optional[str] = None,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_experiment_service(main_module=main, db=db)
+    return await service.list_recycle_experiments(teacher_username=teacher_username, course_id=course_id)
+
+
+async def restore_experiment(
+    experiment_id: str,
+    teacher_username: str,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_experiment_service(main_module=main, db=db)
+    return await service.restore_experiment(experiment_id=experiment_id, teacher_username=teacher_username)
+
+
+async def permanently_delete_experiment(
+    experiment_id: str,
+    teacher_username: str,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_experiment_service(main_module=main, db=db)
+    return await service.permanently_delete_experiment(experiment_id=experiment_id, teacher_username=teacher_username)
 
 
 router.add_api_route("/api/experiments", create_experiment, methods=["POST"], response_model=main.Experiment)
@@ -55,3 +86,9 @@ router.add_api_route("/api/experiments", list_experiments, methods=["GET"], resp
 router.add_api_route("/api/experiments/{experiment_id}", get_experiment, methods=["GET"], response_model=main.Experiment)
 router.add_api_route("/api/experiments/{experiment_id}", update_experiment, methods=["PUT"], response_model=main.Experiment)
 router.add_api_route("/api/experiments/{experiment_id}", delete_experiment, methods=["DELETE"])
+router.add_api_route("/api/teacher/experiments/recycle", list_recycle_experiments, methods=["GET"])
+router.add_api_route("/api/teacher/experiments/{experiment_id}/restore", restore_experiment, methods=["POST"])
+router.add_api_route("/api/teacher/experiments/{experiment_id}/permanent-delete", permanently_delete_experiment, methods=["DELETE"])
+router.add_api_route("/api/teacher/experiments/{experiment_id}/permanent-delete", permanently_delete_experiment, methods=["POST"])
+router.add_api_route("/api/teacher/experiments/{experiment_id}/permanent_delete", permanently_delete_experiment, methods=["DELETE"])
+router.add_api_route("/api/teacher/experiments/{experiment_id}/permanent_delete", permanently_delete_experiment, methods=["POST"])

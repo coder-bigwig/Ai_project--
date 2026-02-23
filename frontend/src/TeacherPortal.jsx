@@ -70,7 +70,9 @@ function TeacherPortal({ username, tab = 'experiments' }) {
     const handleDeleteExperiment = async (id) => {
         if (!window.confirm('确定要删除这个实验吗？')) return;
         try {
-            await axios.delete(`${API_BASE_URL}/api/experiments/${id}`);
+            await axios.delete(`${API_BASE_URL}/api/experiments/${id}`, {
+                params: { teacher_username: username }
+            });
             loadExperiments();
         } catch (error) {
             console.error('删除失败:', error);

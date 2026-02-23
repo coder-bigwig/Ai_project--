@@ -16,11 +16,37 @@ if %errorlevel% neq 0 (
 )
 
 echo [dev] COMPOSE_PROJECT_NAME=%COMPOSE_PROJECT_NAME%
-echo [dev] Starting backend services via docker compose...
-docker compose up -d postgres redis experiment-manager ai-assistant
+echo [dev] Building experiment-manager image (to pick up latest backend code)...
+set DOCKER_BUILDKIT=0
+docker compose build experiment-manager
+if %errorlevel% neq 0 (
+  echo [dev] Failed to build experiment-manager image.
+  pause
+  exit /b 1
+)
+
+echo [dev] Starting backend base services via docker compose...
+docker compose up -d postgres redis ai-assistant
+if %errorlevel% neq 0 (
+  echo [dev] Failed to start backend base services.
+  echo [dev] If this is first run, make sure Docker can pull base images, then run start.bat once.
+  pause
+  exit /b 1
+)
+
+echo [dev] Recreating experiment-manager container to ensure latest backend code is active...
+docker compose up -d --force-recreate experiment-manager
 if %errorlevel% neq 0 (
   echo [dev] Failed to start backend services.
   echo [dev] If this is first run, make sure Docker can pull base images, then run start.bat once.
+  pause
+  exit /b 1
+)
+
+echo [dev] Applying Alembic migrations...
+docker compose exec -T experiment-manager alembic upgrade head
+if %errorlevel% neq 0 (
+  echo [dev] Failed to apply migrations. Check backend/alembic and database state.
   pause
   exit /b 1
 )

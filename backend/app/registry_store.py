@@ -286,6 +286,40 @@ class CourseUpdateRequest(BaseModel):
     teacher_username: str
 
 
+class OfferingCreateRequest(BaseModel):
+    teacher_username: str
+    template_course_id: str
+    offering_code: Optional[str] = None
+    join_code: Optional[str] = None
+    term: Optional[str] = ""
+    major: Optional[str] = ""
+    class_name: Optional[str] = None
+
+
+class OfferingUpdateRequest(BaseModel):
+    teacher_username: str
+    status: str
+
+
+class OfferingMemberItem(BaseModel):
+    user_key: str
+    role: str
+
+
+class OfferingMembersUpsertRequest(BaseModel):
+    teacher_username: str
+    members: List[OfferingMemberItem] = Field(default_factory=list)
+
+
+class StudentOfferingJoinRequest(BaseModel):
+    student_id: str
+
+
+class StudentOfferingJoinByCodeRequest(BaseModel):
+    student_id: str
+    join_code: str
+
+
 class ClassCreateRequest(BaseModel):
     name: str
     teacher_username: str

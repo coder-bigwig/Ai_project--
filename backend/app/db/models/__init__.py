@@ -1,4 +1,7 @@
 from .assets import AppKVStoreORM, AttachmentORM, OperationLogORM, ResourceORM
+from .course_members import CourseMemberORM
+from .course_offerings import CourseOfferingORM
+from .course_student_memberships import CourseStudentMembershipORM
 from .courses import CourseORM
 from .experiments import ExperimentORM
 from .password_reset import PasswordResetTokenORM
@@ -11,6 +14,9 @@ __all__ = [
     "AuthUserORM",
     "AuthUserRole",
     "ClassroomORM",
+    "CourseMemberORM",
+    "CourseOfferingORM",
+    "CourseStudentMembershipORM",
     "CourseORM",
     "ExperimentORM",
     "OperationLogORM",

@@ -1,12 +1,44 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import ResourcePreviewContent from './ResourcePreviewContent';
 import './ResourceFileManagement.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
+const I18N = {
+    fileTypeAll: '\u8bf7\u9009\u62e9\u7c7b\u578b',
+    upload: '\u4e0a\u4f20\u8d44\u6599',
+    uploading: '\u4e0a\u4f20\u4e2d...',
+    searchPlaceholder: '\u8bf7\u8f93\u5165\u540d\u79f0',
+    search: '\u641c\u7d22',
+    countPrefix: '\u8d44\u6e90\u6587\u4ef6\u5171',
+    tableFilename: '\u6587\u4ef6\u540d',
+    tableType: '\u7c7b\u578b',
+    tableCreatedAt: '\u521b\u5efa\u65f6\u95f4',
+    tableAction: '\u64cd\u4f5c',
+    loading: '\u52a0\u8f7d\u4e2d...',
+    empty: '\u6682\u65e0\u6587\u4ef6',
+    detail: '\u8be6\u60c5',
+    del: '\u5220\u9664',
+    detailTitle: '\u8d44\u6e90\u6587\u4ef6\u8be6\u60c5',
+    close: '\u5173\u95ed',
+    detailLoading: '\u8be6\u60c5\u52a0\u8f7d\u4e2d...',
+    previewLoading: '\u6b63\u5728\u52a0\u8f7d\u9884\u89c8...',
+    previewEmpty: '\u6682\u65e0\u53ef\u9884\u89c8\u5185\u5bb9',
+    previewUnsupported: '\u5f53\u524d\u6587\u4ef6\u7c7b\u578b\u4e0d\u652f\u6301\u5728\u7ebf\u9884\u89c8\uff0c\u8bf7\u4e0b\u8f7d\u540e\u67e5\u770b\u3002',
+    download: '\u4e0b\u8f7d\u6587\u4ef6',
+    loadFailed: '\u52a0\u8f7d\u8d44\u6e90\u6587\u4ef6\u5931\u8d25',
+    uploadSuccess: '\u8d44\u6e90\u6587\u4ef6\u4e0a\u4f20\u6210\u529f',
+    uploadFailed: '\u8d44\u6e90\u6587\u4ef6\u4e0a\u4f20\u5931\u8d25',
+    deleteConfirmPrefix: '\u786e\u5b9a\u5220\u9664\u6587\u4ef6',
+    deleteConfirmSuffix: '\u5417\uff1f',
+    deleteFailed: '\u5220\u9664\u5931\u8d25',
+    detailFailed: '\u52a0\u8f7d\u8d44\u6e90\u8be6\u60c5\u5931\u8d25',
+    deleted: '\u6587\u4ef6\u5df2\u5220\u9664',
+};
+
 const FILE_TYPE_OPTIONS = [
-    { value: '', label: '请选择类型' },
+    { value: '', label: I18N.fileTypeAll },
     { value: 'pdf', label: 'pdf' },
     { value: 'doc', label: 'doc' },
     { value: 'docx', label: 'docx' },
@@ -23,7 +55,25 @@ function formatDate(value) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
 }
 
-function ResourceFileManagement({ username }) {
+function buildQueryString(params) {
+    const search = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (!key) return;
+        const normalized = value === undefined || value === null ? '' : String(value).trim();
+        if (!normalized) return;
+        search.set(key, normalized);
+    });
+    return search.toString();
+}
+
+function ResourceFileManagement({
+    username,
+    courseId = '',
+    offeringId = '',
+    countLabel = I18N.countPrefix,
+    listApiPath = '/api/admin/resources',
+    uploadApiPath = '/api/admin/resources/upload',
+}) {
     const [resources, setResources] = useState([]);
     const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -35,12 +85,27 @@ function ResourceFileManagement({ username }) {
     const [detailData, setDetailData] = useState(null);
     const fileInputRef = useRef(null);
 
+    const scopeQueryParams = useMemo(() => {
+        const params = { teacher_username: username };
+        if (courseId) params.course_id = courseId;
+        if (offeringId) params.offering_id = offeringId;
+        return params;
+    }, [username, courseId, offeringId]);
+
+    const scopeQueryString = useMemo(() => buildQueryString(scopeQueryParams), [scopeQueryParams]);
+
     const loadResources = useCallback(async ({ name = '', fileType = '' } = {}) => {
+        if (!username) {
+            setResources([]);
+            setTotalCount(0);
+            return;
+        }
+
         setLoading(true);
         try {
-            const response = await axios.get(`${API_BASE_URL}/api/admin/resources`, {
+            const response = await axios.get(`${API_BASE_URL}${listApiPath}`, {
                 params: {
-                    teacher_username: username,
+                    ...scopeQueryParams,
                     name: name || undefined,
                     file_type: fileType || undefined,
                 },
@@ -50,13 +115,13 @@ function ResourceFileManagement({ username }) {
             setTotalCount(Number.isFinite(payload.total) ? payload.total : 0);
         } catch (error) {
             console.error('Failed to load resources:', error);
-            alert(error.response?.data?.detail || '加载资源文件失败');
+            alert(error.response?.data?.detail || I18N.loadFailed);
             setResources([]);
             setTotalCount(0);
         } finally {
             setLoading(false);
         }
-    }, [username]);
+    }, [listApiPath, scopeQueryParams, username]);
 
     useEffect(() => {
         loadResources({ name: '', fileType: '' });
@@ -75,15 +140,15 @@ function ResourceFileManagement({ username }) {
         formData.append('file', file);
         setUploading(true);
         try {
-            await axios.post(`${API_BASE_URL}/api/admin/resources/upload`, formData, {
-                params: { teacher_username: username },
+            await axios.post(`${API_BASE_URL}${uploadApiPath}`, formData, {
+                params: scopeQueryParams,
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
             await loadResources({ name: searchName, fileType: searchType });
-            alert('资源文件上传成功');
+            alert(I18N.uploadSuccess);
         } catch (error) {
             console.error('Failed to upload resource:', error);
-            alert(error.response?.data?.detail || '资源文件上传失败');
+            alert(error.response?.data?.detail || I18N.uploadFailed);
         } finally {
             setUploading(false);
         }
@@ -94,20 +159,20 @@ function ResourceFileManagement({ username }) {
     };
 
     const handleDelete = async (item) => {
-        if (!window.confirm(`确定删除文件 "${item.filename}" 吗？`)) return;
+        if (!window.confirm(`${I18N.deleteConfirmPrefix} "${item.filename}" ${I18N.deleteConfirmSuffix}`)) return;
         try {
-            await axios.delete(`${API_BASE_URL}/api/admin/resources/${item.id}`, {
-                params: { teacher_username: username },
+            await axios.delete(`${API_BASE_URL}${listApiPath}/${item.id}`, {
+                params: scopeQueryParams,
             });
             if (detailData?.id === item.id) {
                 setDetailVisible(false);
                 setDetailData(null);
             }
             await loadResources({ name: searchName, fileType: searchType });
-            alert('资源文件已删除');
+            alert(I18N.deleted);
         } catch (error) {
             console.error('Failed to delete resource:', error);
-            alert(error.response?.data?.detail || '删除资源文件失败');
+            alert(error.response?.data?.detail || I18N.deleteFailed);
         }
     };
 
@@ -116,13 +181,13 @@ function ResourceFileManagement({ username }) {
         setDetailLoading(true);
         setDetailData(null);
         try {
-            const response = await axios.get(`${API_BASE_URL}/api/admin/resources/${item.id}`, {
-                params: { teacher_username: username },
+            const response = await axios.get(`${API_BASE_URL}${listApiPath}/${item.id}`, {
+                params: scopeQueryParams,
             });
             setDetailData(response.data || null);
         } catch (error) {
             console.error('Failed to load resource detail:', error);
-            alert(error.response?.data?.detail || '加载资源详情失败');
+            alert(error.response?.data?.detail || I18N.detailFailed);
             setDetailVisible(false);
         } finally {
             setDetailLoading(false);
@@ -134,11 +199,15 @@ function ResourceFileManagement({ username }) {
         setDetailData(null);
     };
 
+    const downloadHref = detailData?.download_url
+        ? `${API_BASE_URL}${detailData.download_url}${scopeQueryString ? `?${scopeQueryString}` : ''}`
+        : '';
+
     return (
         <div className="resource-file-management">
             <div className="resource-toolbar">
                 <button className="resource-upload-btn" onClick={openUpload} disabled={uploading}>
-                    {uploading ? '上传中...' : '上传资源文件'}
+                    {uploading ? I18N.uploading : I18N.upload}
                 </button>
                 <input
                     ref={fileInputRef}
@@ -150,7 +219,7 @@ function ResourceFileManagement({ username }) {
                 <div className="resource-search-group">
                     <input
                         type="text"
-                        placeholder="请输入名称"
+                        placeholder={I18N.searchPlaceholder}
                         value={searchName}
                         onChange={(event) => setSearchName(event.target.value)}
                     />
@@ -165,9 +234,9 @@ function ResourceFileManagement({ username }) {
                         ))}
                     </select>
                     <button className="resource-search-btn" onClick={handleSearch}>
-                        搜索
+                        {I18N.search}
                     </button>
-                    <span className="resource-count">云平台资源文件共 {totalCount} 个</span>
+                    <span className="resource-count">{`${countLabel} ${totalCount}`}</span>
                 </div>
             </div>
 
@@ -175,20 +244,20 @@ function ResourceFileManagement({ username }) {
                 <table className="resource-table">
                     <thead>
                         <tr>
-                            <th>文件名</th>
-                            <th>类型</th>
-                            <th>创建时间</th>
-                            <th>操作</th>
+                            <th>{I18N.tableFilename}</th>
+                            <th>{I18N.tableType}</th>
+                            <th>{I18N.tableCreatedAt}</th>
+                            <th>{I18N.tableAction}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan="4" className="resource-empty-row">加载中...</td>
+                                <td colSpan="4" className="resource-empty-row">{I18N.loading}</td>
                             </tr>
                         ) : resources.length === 0 ? (
                             <tr>
-                                <td colSpan="4" className="resource-empty-row">暂无资源文件</td>
+                                <td colSpan="4" className="resource-empty-row">{I18N.empty}</td>
                             </tr>
                         ) : (
                             resources.map((item) => (
@@ -198,10 +267,10 @@ function ResourceFileManagement({ username }) {
                                     <td>{formatDate(item.created_at)}</td>
                                     <td>
                                         <button className="resource-link-btn detail" onClick={() => handleViewDetail(item)}>
-                                            详情
+                                            {I18N.detail}
                                         </button>
                                         <button className="resource-link-btn delete" onClick={() => handleDelete(item)}>
-                                            删除
+                                            {I18N.del}
                                         </button>
                                     </td>
                                 </tr>
@@ -215,34 +284,35 @@ function ResourceFileManagement({ username }) {
                 <div className="resource-modal-mask" onClick={closeDetail}>
                     <div className="resource-modal" onClick={(event) => event.stopPropagation()}>
                         <div className="resource-modal-header">
-                            <h3>{detailData?.filename || '资源文件详情'}</h3>
-                            <button onClick={closeDetail}>关闭</button>
+                            <h3>{detailData?.filename || I18N.detailTitle}</h3>
+                            <button onClick={closeDetail}>{I18N.close}</button>
                         </div>
                         <div className="resource-modal-body">
                             {detailLoading ? (
-                                <div className="resource-preview-empty">详情加载中...</div>
+                                <div className="resource-preview-empty">{I18N.detailLoading}</div>
                             ) : (
                                 <ResourcePreviewContent
                                     detailData={detailData}
                                     accessQueryKey="teacher_username"
                                     accessQueryValue={username}
-                                    loadingText="正在加载预览..."
-                                    emptyText="暂无可预览内容"
-                                    unsupportedText="当前文件类型不支持在线预览，请点击下载后查看。"
+                                    accessQueryParams={scopeQueryParams}
+                                    loadingText={I18N.previewLoading}
+                                    emptyText={I18N.previewEmpty}
+                                    unsupportedText={I18N.previewUnsupported}
                                 />
                             )}
                         </div>
-                        {!detailLoading && detailData && (
+                        {!detailLoading && detailData && downloadHref ? (
                             <div className="resource-modal-footer">
                                 <a
-                                    href={`${API_BASE_URL}${detailData.download_url}?teacher_username=${encodeURIComponent(username)}`}
+                                    href={downloadHref}
                                     target="_blank"
                                     rel="noreferrer"
                                 >
-                                    下载文件
+                                    {I18N.download}
                                 </a>
                             </div>
-                        )}
+                        ) : null}
                     </div>
                 </div>
             )}

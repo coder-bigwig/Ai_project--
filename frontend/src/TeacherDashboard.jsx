@@ -1,36 +1,42 @@
-
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import TeacherReview from './TeacherReview';
 import TeacherUserManagement from './TeacherUserManagement';
+import TeacherTeamManagement from './TeacherTeamManagement';
+import OfferingDetail from './OfferingDetail';
 import ResourceFileManagement from './ResourceFileManagement';
 import TeacherAIModule from './TeacherAIModule';
 import AdminResourceControl from './AdminResourceControl';
 import { persistJupyterTokenFromUrl } from './jupyterAuth';
+import cover01 from './assets/system-covers/cover-01.svg';
+import cover02 from './assets/system-covers/cover-02.svg';
+import cover03 from './assets/system-covers/cover-03.svg';
 import './TeacherDashboard.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const TEACHER_COURSE_RESUME_KEY = 'teacherCourseResumeId';
+const OFFERING_COVER_STORAGE_KEY = 'offeringSystemCoverMap';
 const JUPYTERHUB_URL = process.env.REACT_APP_JUPYTERHUB_URL || '';
 const DEFAULT_JUPYTERHUB_URL = `${window.location.origin}/jupyter/hub/home`;
 const DEFAULT_JUPYTERHUB_HEALTH_URL = `${window.location.origin}/jupyter/hub/health`;
 const LEGACY_JUPYTERHUB_URL = `${window.location.protocol}//${window.location.hostname}:8003/jupyter/hub/home`;
+const SYSTEM_COVERS = [
+  { id: 'system-01', label: '绯荤粺灏侀潰 1', src: cover01 },
+  { id: 'system-02', label: '绯荤粺灏侀潰 2', src: cover02 },
+  { id: 'system-03', label: '绯荤粺灏侀潰 3', src: cover03 },
+];
 
 const TABS = [
-  { key: 'courses', label: '课程库', tip: '课程与实验管理', Icon: CourseTabIcon },
-  { key: 'progress', label: '学生进度', tip: '查看完成情况', Icon: ProgressTabIcon },
-  { key: 'review', label: '提交审阅', tip: '批改学生作业', Icon: ReviewTabIcon },
-  { key: 'users', label: '用户管理', tip: '班级和学生管理', Icon: UserTabIcon },
-  { key: 'resources', label: '资源文件', tip: '平台资源管理', Icon: ResourceTabIcon },
-  { key: 'profile', label: '个人中心', tip: '账号与安全设置', Icon: ProfileTabIcon },
-  { key: 'ai', label: 'AI功能', tip: '模型与密钥配置', Icon: AITabIcon },
+  { key: 'courses', label: '\u8bfe\u7a0b\u5e93', tip: '\u8bfe\u7a0b\u4e0e\u5b9e\u9a8c\u7ba1\u7406', Icon: CourseTabIcon },
+  { key: 'profile', label: '\u4e2a\u4eba\u4e2d\u5fc3', tip: '\u8d26\u53f7\u4e0e\u5b89\u5168\u8bbe\u7f6e', Icon: ProfileTabIcon },
+  { key: 'ai', label: 'AI\u529f\u80fd', tip: '\u6a21\u578b\u4e0e\u5bc6\u94a5\u914d\u7f6e', Icon: AITabIcon },
 ];
 
 const ADMIN_TAB = {
   key: 'admin-resource',
-  label: '资源监控',
-  tip: '容器配额与日志',
+  label: '\u8d44\u6e90\u76d1\u63a7',
+  tip: '\u5bb9\u5668\u914d\u989d\u4e0e\u65e5\u5fd7',
   Icon: AdminControlTabIcon,
 };
 
@@ -48,11 +54,28 @@ function formatDateTime(v) {
   return `${formatDate(v)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+function toNumericScore(value) {
+  const score = Number(value);
+  return Number.isFinite(score) ? score : null;
+}
+
+function formatScoreValue(value) {
+  const score = toNumericScore(value);
+  if (score === null) return '';
+  return Number.isInteger(score) ? String(score) : score.toFixed(1);
+}
+
+function csvEscape(value) {
+  const text = String(value ?? '');
+  if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+}
+
 function progressStatusKey(status) {
   const v = String(status || '').toLowerCase();
-  if (v.includes('评分') || v.includes('graded')) return 'graded';
-  if (v.includes('提交') || v.includes('submit')) return 'submitted';
-  if (v.includes('进行') || v.includes('progress')) return 'in-progress';
+  if (v.includes('\u8bc4\u5206') || v.includes('graded')) return 'graded';
+  if (v.includes('\u63d0\u4ea4') || v.includes('submit')) return 'submitted';
+  if (v.includes('\u8fdb\u884c') || v.includes('progress')) return 'in-progress';
   return 'not-started';
 }
 
@@ -62,8 +85,16 @@ function isCompleted(status) {
 }
 
 function getErrorMessage(error, fallback) {
-  if (error?.response?.status === 413) return '附件过大，请压缩后重试（当前限制 200MB）';
+  if (error?.response?.status === 413) return '\u9644\u4ef6\u8fc7\u5927\uff0c\u8bf7\u538b\u7f29\u540e\u91cd\u8bd5\uff08\u5f53\u524d\u9650\u5236 200MB\uff09';
   return error?.response?.data?.detail || fallback;
+}
+
+function isRouteMissingError(error) {
+  const status = Number(error?.response?.status || 0);
+  if (status !== 404 && status !== 405) return false;
+  const detail = String(error?.response?.data?.detail || '').trim().toLowerCase();
+  if (status === 405) return !detail || detail === 'method not allowed';
+  return !detail || detail === 'not found';
 }
 
 function parseTags(v) {
@@ -93,15 +124,24 @@ function normalizePublishScope(value) {
   return 'all';
 }
 
-function courseIconMeta(item) {
-  const text = `${item?.name || ''} ${item?.title || ''} ${item?.description || ''} ${(item?.tags || []).join(' ')}`.toLowerCase();
-  if (text.includes('vision') || text.includes('自动驾驶') || text.includes('视觉')) return { label: 'CV', cls: 'theme-vision' };
-  if (text.includes('matplotlib') || text.includes('可视化') || text.includes('图表')) return { label: 'PLT', cls: 'theme-plot' };
-  if (text.includes('pandas')) return { label: 'PD', cls: 'theme-pandas' };
-  if (text.includes('numpy')) return { label: 'NP', cls: 'theme-numpy' };
-  if (text.includes('machine learning') || text.includes('scikit') || text.includes('机器学习')) return { label: 'ML', cls: 'theme-ml' };
-  if (text.includes('python')) return { label: 'PY', cls: 'theme-python' };
-  return { label: 'LAB', cls: 'theme-generic' };
+function loadCoverSelectionMap() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(OFFERING_COVER_STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function hashString(value) {
+  const text = String(value || '');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
 }
 
 function resolveCourseName(item) {
@@ -110,7 +150,7 @@ function resolveCourseName(item) {
   const path = String(item?.notebook_path || '').trim();
   const first = path.split('/').filter(Boolean)[0] || '';
   if (first && first.toLowerCase() !== 'course') return first;
-  return 'Python程序设计';
+  return '\u9ed8\u8ba4\u8bfe\u7a0b';
 }
 
 function normalizeTeacherCourses(items) {
@@ -125,7 +165,7 @@ function normalizeTeacherCourses(items) {
           : [];
         return {
           id: item?.id,
-          name: item?.name || '未命名课程',
+          name: item?.name || '\u672a\u547d\u540d\u8bfe\u7a0b',
           description: item?.description || '',
           created_by: item?.created_by || '',
           created_at: item?.created_at || null,
@@ -207,7 +247,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
       setCourses(normalizeTeacherCourses(res.data));
     } catch (error) {
       console.error('loadCourses failed', error);
-      alert(getErrorMessage(error, '加载课程库失败'));
+      alert(getErrorMessage(error, '\u52a0\u8f7d\u8bfe\u7a0b\u5e93\u5931\u8d25'));
       setCourses([]);
     } finally {
       setLoadingCourses(false);
@@ -221,20 +261,27 @@ function TeacherDashboard({ username, userRole, onLogout }) {
       setProgress(Array.isArray(res.data) ? res.data : []);
     } catch (error) {
       console.error('loadProgress failed', error);
-      alert(getErrorMessage(error, '加载学生进度失败'));
+      alert(getErrorMessage(error, '\u52a0\u8f7d\u5b66\u751f\u8fdb\u5ea6\u5931\u8d25'));
       setProgress([]);
     } finally {
       setLoadingProgress(false);
     }
   }, [username]);
 
-  const loadSubmissions = useCallback(async () => {
+    const loadSubmissions = useCallback(async (targetExperimentIds = null) => {
     setLoadingSubmissions(true);
     try {
-      const source = courses.length > 0
-        ? courses
-        : normalizeTeacherCourses((await axios.get(`${API_BASE_URL}/api/teacher/courses`, { params: { teacher_username: username } })).data || []);
-      const experimentIds = source.flatMap((course) => (course?.experiments || []).map((exp) => exp.id)).filter(Boolean);
+      let experimentIds = Array.isArray(targetExperimentIds)
+        ? targetExperimentIds.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+
+      if (experimentIds.length === 0 && targetExperimentIds === null) {
+        const source = courses.length > 0
+          ? courses
+          : normalizeTeacherCourses((await axios.get(`${API_BASE_URL}/api/teacher/courses`, { params: { teacher_username: username } })).data || []);
+        experimentIds = source.flatMap((course) => (course?.experiments || []).map((exp) => exp.id)).filter(Boolean);
+      }
+
       if (experimentIds.length === 0) {
         setSubmissions([]);
         return;
@@ -251,21 +298,16 @@ function TeacherDashboard({ username, userRole, onLogout }) {
       setSubmissions(lists.flat());
     } catch (error) {
       console.error('loadSubmissions failed', error);
-      alert(getErrorMessage(error, '加载提交记录失败'));
+      alert(getErrorMessage(error, '\u52a0\u8f7d\u63d0\u4ea4\u8bb0\u5f55\u5931\u8d25'));
       setSubmissions([]);
     } finally {
       setLoadingSubmissions(false);
     }
   }, [courses, username]);
 
-  useEffect(() => {
+    useEffect(() => {
     loadCourses();
-    loadProgress();
-  }, [loadCourses, loadProgress]);
-
-  useEffect(() => {
-    if (activeTab === 'review') loadSubmissions();
-  }, [activeTab, loadSubmissions]);
+  }, [loadCourses]);
 
   const handleGrade = async (submissionId, score, comment) => {
     try {
@@ -273,7 +315,6 @@ function TeacherDashboard({ username, userRole, onLogout }) {
         params: { score, comment, teacher_username: username },
       });
       alert('评分成功');
-      await loadSubmissions();
     } catch (error) {
       console.error('grade failed', error);
       alert(getErrorMessage(error, '评分失败'));
@@ -303,43 +344,29 @@ function TeacherDashboard({ username, userRole, onLogout }) {
   };
 
   const handleDeleteCourse = async (course) => {
-    const total = Number(course?.experiment_count ?? course?.experiments?.length ?? 0);
-    const hasExperiments = total > 0;
-    const ok = hasExperiments
-      ? window.confirm(`课程「${course?.name || '-'}」下有 ${total} 个实验，删除课程会一并删除实验。是否继续？`)
-      : window.confirm(`确定删除课程「${course?.name || '-'}」吗？`);
-    if (!ok) return;
+    const courseId = String(course?.id || '').trim();
+    if (!courseId) return false;
+    const courseName = String(course?.name || '\u8be5\u8bfe\u7a0b').trim() || '\u8be5\u8bfe\u7a0b';
+    if (!window.confirm(`\u786e\u5b9a\u5220\u9664\u8bfe\u7a0b "${courseName}" \u5417\uff1f`)) return false;
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/teacher/courses/${course.id}`, {
-        params: { teacher_username: username, delete_experiments: hasExperiments },
+      await axios.delete(`${API_BASE_URL}/api/teacher/courses/${encodeURIComponent(courseId)}`, {
+        params: { teacher_username: username },
       });
-      await loadCourses();
-      alert('课程删除成功');
     } catch (error) {
-      console.error('delete course failed', error);
-      alert(getErrorMessage(error, '删除课程失败'));
-    }
-  };
-
-  const handleToggleCoursePublish = async (course) => {
-    const total = Number(course?.experiment_count ?? course?.experiments?.length ?? 0);
-    if (total <= 0) {
-      alert('课程下暂无实验，无法发布');
-      return;
+      const status = Number(error?.response?.status || 0);
+      if (status !== 409) throw error;
+      if (!window.confirm(`\u8bfe\u7a0b "${courseName}" \u4e0b\u5b58\u5728\u4f5c\u4e1a\uff0c\u662f\u5426\u8fde\u540c\u4f5c\u4e1a\u4e0e\u9644\u4ef6\u4e00\u5e76\u5220\u9664\uff1f\u8be5\u64cd\u4f5c\u4e0d\u53ef\u6062\u590d\u3002`)) {
+        return false;
+      }
+      await axios.delete(`${API_BASE_URL}/api/teacher/courses/${encodeURIComponent(courseId)}`, {
+        params: { teacher_username: username, delete_experiments: true },
+      });
     }
 
-    const currentPublished = Number(course?.published_count ?? 0) === total;
-    try {
-      await axios.patch(`${API_BASE_URL}/api/teacher/courses/${course.id}/publish`, null, {
-        params: { teacher_username: username, published: !currentPublished },
-      });
-      await loadCourses();
-      alert(currentPublished ? '已取消发布课程' : '课程已发布');
-    } catch (error) {
-      console.error('toggle course publish failed', error);
-      alert(getErrorMessage(error, '课程发布操作失败'));
-    }
+    await loadCourses();
+    alert('\u8bfe\u7a0b\u5df2\u5220\u9664');
+    return true;
   };
 
   const buildExperimentPayload = (experiment, formData, course) => ({
@@ -387,39 +414,74 @@ function TeacherDashboard({ username, userRole, onLogout }) {
     return res.data;
   };
 
-  const handleToggleExperimentPublish = async (course, experiment) => {
-    try {
-      const payload = buildExperimentPayload(
-        experiment,
-        {
-          title: experiment.title || '',
-          description: experiment.description || '',
-          difficulty: experiment.difficulty || '初级',
-          tags: Array.isArray(experiment.tags) ? experiment.tags.join(', ') : '',
-          notebook_path: experiment.notebook_path || '',
-          published: !experiment.published,
-        },
-        course
-      );
-      await axios.put(`${API_BASE_URL}/api/experiments/${experiment.id}`, payload);
-      await loadCourses();
-      alert(experiment.published ? '已取消发布实验' : '实验已发布');
-    } catch (error) {
-      console.error('toggle experiment publish failed', error);
-      alert(getErrorMessage(error, '实验发布操作失败'));
-    }
+  const handleDeleteExperiment = async (course, experiment) => {
+    const targetTitle = String(experiment?.title || '\u8be5\u4f5c\u4e1a');
+    if (!window.confirm(`\u786e\u5b9a\u5220\u9664\u4f5c\u4e1a "${targetTitle}" \u5417\uff1f`)) return false;
+    await axios.delete(`${API_BASE_URL}/api/experiments/${experiment.id}`, {
+      params: { teacher_username: username },
+    });
+    await loadCourses();
+    alert('\u4f5c\u4e1a\u5df2\u5220\u9664\uff0c\u53ef\u572830\u5929\u5185\u5728\u56de\u6536\u7ad9\u6062\u590d');
+    return true;
   };
 
-  const handleDeleteExperiment = async (experiment) => {
-    if (!window.confirm(`确定删除实验「${experiment?.title || experiment?.id || '-'}」吗？`)) return;
-    try {
-      await axios.delete(`${API_BASE_URL}/api/experiments/${experiment.id}`);
-      await loadCourses();
-      alert('实验删除成功');
-    } catch (error) {
-      console.error('delete experiment failed', error);
-      alert(getErrorMessage(error, '删除实验失败'));
+  const handleListRecycleExperiments = async (courseId) => {
+    const res = await axios.get(`${API_BASE_URL}/api/teacher/experiments/recycle`, {
+      params: { teacher_username: username, course_id: courseId },
+    });
+    return Array.isArray(res.data?.items) ? res.data.items : [];
+  };
+
+  const handleRestoreExperiment = async (experimentId) => {
+    await axios.post(`${API_BASE_URL}/api/teacher/experiments/${experimentId}/restore`, null, {
+      params: { teacher_username: username },
+    });
+    await loadCourses();
+  };
+
+  const handlePermanentDeleteExperiment = async (experimentId) => {
+    const requestOptions = { params: { teacher_username: username } };
+    const candidates = [
+      { method: 'delete', url: `${API_BASE_URL}/api/teacher/experiments/${experimentId}/permanent-delete` },
+      { method: 'post', url: `${API_BASE_URL}/api/teacher/experiments/${experimentId}/permanent-delete` },
+      { method: 'delete', url: `${API_BASE_URL}/api/teacher/experiments/${experimentId}/permanent_delete` },
+      { method: 'post', url: `${API_BASE_URL}/api/teacher/experiments/${experimentId}/permanent_delete` },
+      { method: 'delete', url: `${API_BASE_URL}/api/teacher/experiments/${experimentId}/permanent-delete/` },
+      { method: 'post', url: `${API_BASE_URL}/api/teacher/experiments/${experimentId}/permanent-delete/` },
+      { method: 'delete', url: `${API_BASE_URL}/api/teacher/experiments/${experimentId}/permanent_delete/` },
+      { method: 'post', url: `${API_BASE_URL}/api/teacher/experiments/${experimentId}/permanent_delete/` },
+    ];
+
+    let lastError = null;
+    for (const candidate of candidates) {
+      try {
+        if (candidate.method === 'delete') {
+          await axios.delete(candidate.url, requestOptions);
+        } else {
+          await axios.post(candidate.url, null, requestOptions);
+        }
+        await loadCourses();
+        return;
+      } catch (error) {
+        if (isRouteMissingError(error)) {
+          lastError = error;
+          continue;
+        }
+        throw error;
+      }
     }
+
+    if (lastError) {
+      const compatibilityError = new Error('permanent delete endpoint not found');
+      compatibilityError.response = {
+        data: {
+          detail: '\u5f53\u524d\u540e\u7aef\u672a\u63d0\u4f9b\u201c\u5f7b\u5e95\u5220\u9664\u201d\u63a5\u53e3\uff0c\u8bf7\u91cd\u5efa\u5e76\u91cd\u542f\u540e\u7aef\u670d\u52a1\u540e\u518d\u8bd5',
+        },
+      };
+      throw compatibilityError;
+    }
+
+    throw new Error('permanent delete failed');
   };
 
   const experiments = useMemo(() => flattenExperiments(courses), [courses]);
@@ -430,10 +492,6 @@ function TeacherDashboard({ username, userRole, onLogout }) {
     });
     return map;
   }, [experiments]);
-
-  const courseCount = courses.length;
-  const experimentCount = experiments.length;
-  const publishedCount = useMemo(() => experiments.filter((item) => item.published).length, [experiments]);
 
   const logout = () => {
     if (typeof onLogout === 'function') {
@@ -489,23 +547,23 @@ function TeacherDashboard({ username, userRole, onLogout }) {
     <div className="teacher-lab-shell">
       <header className="teacher-lab-topbar">
         <div className="teacher-lab-brand">
-          <h1>福州理工学院AI编程实践教学平台</h1>
-          <p>教师管理端 / AI Programming Practice Teaching Platform</p>
+          <h1>{'\u798f\u5dde\u7406\u5de5\u5b66\u9662AI\u7f16\u7a0b\u5b9e\u8df5\u6559\u5b66\u5e73\u53f0'}</h1>
+          <p>{'\u6559\u5e08\u7ba1\u7406\u7aef'} / AI Programming Practice Teaching Platform</p>
         </div>
         <div className="teacher-lab-user">
           <span className="teacher-lab-avatar">{(username || 'T').slice(0, 1).toUpperCase()}</span>
           <div className="teacher-lab-user-text">
-            <span className="teacher-lab-user-name">教师账号：{username}</span>
-            <span className="teacher-lab-user-role">角色：{isAdmin ? '系统管理员' : '教师管理员'}</span>
+            <span className="teacher-lab-user-name">{`\u6559\u5e08\u8d26\u53f7\uff1a${username || '-'}`}</span>
+            <span className="teacher-lab-user-role">{`\u89d2\u8272\uff1a${isAdmin ? '\u7cfb\u7edf\u7ba1\u7406\u5458' : '\u6559\u5e08\u7ba1\u7406\u5458'}`}</span>
           </div>
-          <button type="button" className="teacher-lab-jhub" onClick={openJupyterHub}>进入 JupyterHub</button>
-          <button type="button" className="teacher-lab-logout" onClick={logout}>退出</button>
+          <button type="button" className="teacher-lab-jhub" onClick={openJupyterHub}>{'\u8fdb\u5165 JupyterHub'}</button>
+          <button type="button" className="teacher-lab-logout" onClick={logout}>{'\u9000\u51fa'}</button>
         </div>
       </header>
 
       <div className="teacher-lab-layout">
         <aside className="teacher-lab-sidebar">
-          <div className="teacher-lab-sidebar-title">模块</div>
+          <div className="teacher-lab-sidebar-title">{'\u6a21\u5757'}</div>
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -520,68 +578,42 @@ function TeacherDashboard({ username, userRole, onLogout }) {
         </aside>
 
         <section className="teacher-lab-content">
-          <div className="teacher-lab-breadcrumb">教师端 / <strong>{currentTab.label}</strong></div>
+          {activeTab === 'courses' ? null : <div className="teacher-lab-breadcrumb">{'\u6559\u5e08\u7aef'} / <strong>{currentTab.label}</strong></div>}
 
           {activeTab === 'courses' ? (
-            <>
-              <div className="teacher-lab-toolbar">
-                <div className="teacher-lab-toolbar-stats">
-                  <span>课程总数：{courseCount}</span>
-                  <span>实验总数：{experimentCount}</span>
-                  <span>已发布实验：{publishedCount}</span>
-                </div>
-                <button type="button" className="teacher-lab-create-btn" onClick={() => {
-                  setEditingCourse(null);
-                  setShowCourseEditor(true);
-                }}>
-                  + 创建课程
-                </button>
-              </div>
-
-              <CoursePanel
-                courses={courses}
-                loading={loadingCourses}
-                onCreateExperiment={(course) => {
-                  setTargetCourse(course);
-                  setEditingExperiment(null);
-                  setShowExperimentEditor(true);
-                }}
-                onEditCourse={(course) => {
-                  setEditingCourse(course);
-                  setShowCourseEditor(true);
-                }}
-                onPublishCourse={handleToggleCoursePublish}
-                onDeleteCourse={handleDeleteCourse}
-                onOpenExperiment={(experiment) => navigate(`/workspace/${experiment.id}`)}
-                onEditExperiment={(course, experiment) => {
-                  setTargetCourse(course);
-                  setEditingExperiment(experiment);
-                  setShowExperimentEditor(true);
-                }}
-                onPublishExperiment={handleToggleExperimentPublish}
-                onDeleteExperiment={handleDeleteExperiment}
-              />
-            </>
-          ) : null}
-
-          {activeTab === 'progress' ? <ProgressPanel progress={progress} loading={loadingProgress} courseMap={courseMap} /> : null}
-
-          {activeTab === 'review' ? (
-            <div className="teacher-lab-section">
-              <TeacherReview username={username} submissions={submissions} loading={loadingSubmissions} onGrade={handleGrade} />
-            </div>
-          ) : null}
-
-          {activeTab === 'users' ? (
-            <div className="teacher-lab-section">
-              <TeacherUserManagement username={username} userRole={userRole} />
-            </div>
-          ) : null}
-
-          {activeTab === 'resources' ? (
-            <div className="teacher-lab-section">
-              <ResourceFileManagement username={username} />
-            </div>
+            <CourseWorkspacePanel
+              username={username}
+              userRole={userRole}
+              courses={courses}
+              loading={loadingCourses}
+              progress={progress}
+              loadingProgress={loadingProgress}
+              onLoadProgress={loadProgress}
+              submissions={submissions}
+              loadingSubmissions={loadingSubmissions}
+              onLoadSubmissions={loadSubmissions}
+              onGradeSubmission={handleGrade}
+              courseMap={courseMap}
+              onCreateCourse={() => {
+                setEditingCourse(null);
+                setShowCourseEditor(true);
+              }}
+              onDeleteCourse={handleDeleteCourse}
+              onCreateExperiment={(course) => {
+                setTargetCourse(course);
+                setEditingExperiment(null);
+                setShowExperimentEditor(true);
+              }}
+              onEditExperiment={(course, experiment) => {
+                setTargetCourse(course);
+                setEditingExperiment(experiment);
+                setShowExperimentEditor(true);
+              }}
+              onDeleteExperiment={handleDeleteExperiment}
+              onListRecycleExperiments={handleListRecycleExperiments}
+              onRestoreExperiment={handleRestoreExperiment}
+              onPermanentDeleteExperiment={handlePermanentDeleteExperiment}
+            />
           ) : null}
 
           {activeTab === 'profile' ? (
@@ -634,25 +666,51 @@ function TeacherDashboard({ username, userRole, onLogout }) {
   );
 }
 
-function CoursePanel({
+function CourseWorkspacePanel({
+  username,
+  userRole,
   courses,
   loading,
-  onCreateExperiment,
-  onEditCourse,
-  onPublishCourse,
+  progress,
+  loadingProgress,
+  onLoadProgress,
+  submissions,
+  loadingSubmissions,
+  onLoadSubmissions,
+  onGradeSubmission,
+  courseMap,
+  onCreateCourse,
   onDeleteCourse,
-  onOpenExperiment,
+  onCreateExperiment,
   onEditExperiment,
-  onPublishExperiment,
   onDeleteExperiment,
+  onListRecycleExperiments,
+  onRestoreExperiment,
+  onPermanentDeleteExperiment,
 }) {
-  const [selectedCourseId, setSelectedCourseId] = useState(() => {
+  const [resumeCourseId] = useState(() => {
     const cachedCourseId = String(sessionStorage.getItem(TEACHER_COURSE_RESUME_KEY) || '').trim();
-    if (cachedCourseId) {
-      sessionStorage.removeItem(TEACHER_COURSE_RESUME_KEY);
-    }
+    if (cachedCourseId) sessionStorage.removeItem(TEACHER_COURSE_RESUME_KEY);
     return cachedCourseId;
   });
+  const [viewMode, setViewMode] = useState(resumeCourseId ? 'detail' : 'home');
+  const [selectedCourseId, setSelectedCourseId] = useState(resumeCourseId);
+  const [homeKeyword, setHomeKeyword] = useState('');
+  const [detailMenu, setDetailMenu] = useState('management');
+  const [assignmentKeyword, setAssignmentKeyword] = useState('');
+  const [loadingRecycle, setLoadingRecycle] = useState(false);
+  const [recycleRows, setRecycleRows] = useState([]);
+  const [activeManageTab, setActiveManageTab] = useState('class-management');
+  const [allOfferings, setAllOfferings] = useState([]);
+  const [coverSelectionMap, setCoverSelectionMap] = useState(() => loadCoverSelectionMap());
+  const [selectedCourseStudentCount, setSelectedCourseStudentCount] = useState(0);
+  const [selectedCourseClassNames, setSelectedCourseClassNames] = useState([]);
+  const [summaryRefreshTick, setSummaryRefreshTick] = useState(0);
+  const [statisticsTab, setStatisticsTab] = useState('overview');
+  const [statisticsExperimentId, setStatisticsExperimentId] = useState('all');
+  const [statisticsKeyword, setStatisticsKeyword] = useState('');
+  const [statisticsStudents, setStatisticsStudents] = useState([]);
+  const [loadingStatisticsStudents, setLoadingStatisticsStudents] = useState(false);
 
   const selectedCourse = useMemo(() => {
     const needle = String(selectedCourseId || '').trim();
@@ -660,186 +718,1132 @@ function CoursePanel({
     return (courses || []).find((item) => String(item?.id || '').trim() === needle) || null;
   }, [courses, selectedCourseId]);
 
-  useEffect(() => {
-    if (!selectedCourseId) return;
-    const keep = (courses || []).some((item) => String(item?.id || '').trim() === String(selectedCourseId).trim());
-    if (!keep) setSelectedCourseId('');
-  }, [courses, selectedCourseId]);
+  const selectedCourseExperiments = useMemo(
+    () => (Array.isArray(selectedCourse?.experiments) ? selectedCourse.experiments : []),
+    [selectedCourse]
+  );
 
-  const buildCourseViewModel = (course) => {
-    const experiments = Array.isArray(course?.experiments) ? course.experiments : [];
-    const firstExperiment = experiments[0] || {};
-    const icon = courseIconMeta({
-      name: course?.name,
-      title: firstExperiment.title,
-      description: course?.description || firstExperiment.description,
-      tags: course?.tags?.length ? course.tags : firstExperiment.tags,
-    });
+  const selectedCourseExperimentIds = useMemo(
+    () => selectedCourseExperiments.map((item) => String(item?.id || '').trim()).filter(Boolean),
+    [selectedCourseExperiments]
+  );
 
-    const totalExperiments = Number(course?.experiment_count ?? experiments.length);
-    const publishedCount = Number(course?.published_count ?? experiments.filter((item) => item.published).length);
-    const allPublished = totalExperiments > 0 && publishedCount === totalExperiments;
-    return { experiments, firstExperiment, icon, totalExperiments, publishedCount, allPublished };
-  };
+  const selectedCourseExperimentIdSet = useMemo(
+    () => new Set(selectedCourseExperimentIds),
+    [selectedCourseExperimentIds]
+  );
 
-  const renderExperimentList = (course) => {
-    const experiments = Array.isArray(course?.experiments) ? course.experiments : [];
-    if (experiments.length === 0) {
-      return (
-        <article className="teacher-lab-card teacher-lab-card-empty" key={`${course?.id || 'course'}-empty`}>
-          <div className={`teacher-lab-logo ${courseIconMeta(course).cls}`}>
-            <span>{courseIconMeta(course).label}</span>
-          </div>
-          <h3>{'\u6682\u65e0\u5b9e\u9a8c'}</h3>
-          <p className="teacher-lab-desc">
-            {'\u5f53\u524d\u8bfe\u7a0b\u8fd8\u6ca1\u6709\u5b9e\u9a8c\uff0c\u70b9\u51fb\u4e0b\u65b9\u6309\u94ae\u6dfb\u52a0\u7b2c\u4e00\u4e2a\u5b9e\u9a8c\u3002'}
-          </p>
-          <div className="teacher-lab-card-actions">
-            <button type="button" className="teacher-lab-btn primary" onClick={() => onCreateExperiment(course)}>
-              {'+ \u6dfb\u52a0\u5b9e\u9a8c'}
-            </button>
-          </div>
-        </article>
-      );
+  const filteredCourseProgress = useMemo(
+    () => (Array.isArray(progress) ? progress : []).filter((item) => selectedCourseExperimentIdSet.has(String(item?.experiment_id || '').trim())),
+    [progress, selectedCourseExperimentIdSet]
+  );
+
+  const filteredCourseSubmissions = useMemo(
+    () => (Array.isArray(submissions) ? submissions : []).filter((item) => selectedCourseExperimentIdSet.has(String(item?.experiment_id || '').trim())),
+    [submissions, selectedCourseExperimentIdSet]
+  );
+
+  const loadCourseSubmissions = useCallback(async () => {
+    if (typeof onLoadSubmissions !== 'function') return;
+    await onLoadSubmissions(selectedCourseExperimentIds);
+  }, [onLoadSubmissions, selectedCourseExperimentIds]);
+
+  const loadStatisticsStudents = useCallback(async () => {
+    const courseId = String(selectedCourse?.id || '').trim();
+    if (!courseId || !username) {
+      setStatisticsStudents([]);
+      return;
     }
 
-    return experiments.map((experiment) => {
-      const iconMeta = courseIconMeta({
-        ...experiment,
-        name: course?.name || experiment?.course_name || '',
-        description: `${experiment?.description || ''} ${course?.description || ''}`.trim(),
-        tags: [...(course?.tags || []), ...(experiment?.tags || [])],
-      });
+    setLoadingStatisticsStudents(true);
+    try {
+      const pageSize = 100;
+      let page = 1;
+      let total = 0;
+      const rows = [];
+      const seen = new Set();
 
-      return (
-        <article key={experiment.id} className="teacher-lab-card">
-          <div className={`teacher-lab-logo ${iconMeta.cls}`}>
-            <span>{iconMeta.label}</span>
-          </div>
-          <h3>{experiment.title || '\u672a\u547d\u540d\u5b9e\u9a8c'}</h3>
-          <div className="teacher-lab-card-headline">
-            <span className={`teacher-lab-status ${experiment.published ? 'published' : 'draft'}`}>
-              {experiment.published ? '\u5df2\u53d1\u5e03' : '\u8349\u7a3f'}
-            </span>
-            <span className="teacher-lab-difficulty">{`\u96be\u5ea6\uff1a${experiment.difficulty || '-'}`}</span>
-          </div>
-          <p className="teacher-lab-desc">
-            {experiment.description || '\u6682\u65e0\u5b9e\u9a8c\u63cf\u8ff0'}
-          </p>
-          <div className="teacher-lab-chip-row">
-            {(experiment.tags?.length ? experiment.tags : ['\u65e0\u6807\u7b7e']).map((tag) => (
-              <span key={`${experiment.id}-${tag}`} className="teacher-lab-chip">{tag}</span>
-            ))}
-          </div>
-          <div className="teacher-lab-meta-row">{`Notebook\uff1a${experiment.notebook_path || '\u672a\u914d\u7f6e'}`}</div>
+      do {
+        const res = await axios.get(
+          `${API_BASE_URL}/api/teacher/courses/${encodeURIComponent(courseId)}/students`,
+          {
+            params: {
+              teacher_username: username,
+              page,
+              page_size: pageSize,
+            },
+          }
+        );
+        const payload = res?.data || {};
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        total = Number(payload?.total || 0);
 
-          <div className="teacher-lab-card-actions">
+        items.forEach((item) => {
+          const studentId = String(item?.student_id || '').trim();
+          if (!studentId) return;
+          const key = studentId.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          rows.push({
+            student_id: studentId,
+            real_name: String(item?.real_name || '').trim(),
+            class_name: String(item?.class_name || '').trim(),
+          });
+        });
+
+        if (items.length === 0) break;
+        page += 1;
+      } while (rows.length < total);
+
+      setStatisticsStudents(rows);
+    } catch (error) {
+      console.error('loadStatisticsStudents failed', error);
+      setStatisticsStudents([]);
+    } finally {
+      setLoadingStatisticsStudents(false);
+    }
+  }, [selectedCourse?.id, username]);
+
+  const handleGradeSubmission = useCallback(async (submissionId, score, comment) => {
+    if (typeof onGradeSubmission !== 'function') return;
+    await onGradeSubmission(submissionId, score, comment);
+    await loadCourseSubmissions();
+  }, [onGradeSubmission, loadCourseSubmissions]);
+
+  useEffect(() => {
+    if (!Array.isArray(courses) || courses.length === 0) {
+      if (viewMode === 'detail') setViewMode('home');
+      if (selectedCourseId) setSelectedCourseId('');
+      return;
+    }
+
+    if (viewMode === 'detail' && !selectedCourseId) {
+      setSelectedCourseId(String(courses[0]?.id || ''));
+      return;
+    }
+
+    const exists = courses.some((item) => String(item?.id || '').trim() === String(selectedCourseId || '').trim());
+    if (viewMode === 'detail' && selectedCourseId && !exists) {
+      setSelectedCourseId(String(courses[0]?.id || ''));
+    }
+  }, [courses, selectedCourseId, viewMode]);
+
+  const filteredHomeCourses = useMemo(() => {
+    const needle = String(homeKeyword || '').trim().toLowerCase();
+    if (!needle) return courses || [];
+    return (courses || []).filter((item) => {
+      const name = String(item?.name || '').toLowerCase();
+      const desc = String(item?.description || '').toLowerCase();
+      return name.includes(needle) || desc.includes(needle);
+    });
+  }, [courses, homeKeyword]);
+
+  const handleDeleteCourseFromHome = useCallback(async () => {
+    if (typeof onDeleteCourse !== 'function') return;
+    if (!Array.isArray(filteredHomeCourses) || filteredHomeCourses.length === 0) {
+      alert('\u6682\u65e0\u53ef\u5220\u9664\u7684\u8bfe\u7a0b');
+      return;
+    }
+    if (filteredHomeCourses.length > 1) {
+      const keyword = String(homeKeyword || '').trim();
+      if (!keyword) {
+        alert('\u8bf7\u5148\u5728\u641c\u7d22\u6846\u8f93\u5165\u8bfe\u7a0b\u540d\uff0c\u5b9a\u4f4d\u5230\u552f\u4e00\u8bfe\u7a0b\u540e\u518d\u5220\u9664');
+      } else {
+        alert(`\u5f53\u524d\u641c\u7d22\u5339\u914d\u5230 ${filteredHomeCourses.length} \u95e8\u8bfe\u7a0b\uff0c\u8bf7\u7ee7\u7eed\u8f93\u5165\u66f4\u7cbe\u786e\u7684\u5173\u952e\u8bcd\u540e\u518d\u5220\u9664`);
+      }
+      return;
+    }
+
+    try {
+      const deleted = await onDeleteCourse(filteredHomeCourses[0]);
+      if (deleted) setHomeKeyword('');
+    } catch (error) {
+      console.error('delete course failed', error);
+      alert(getErrorMessage(error, '\u5220\u9664\u8bfe\u7a0b\u5931\u8d25'));
+    }
+  }, [filteredHomeCourses, homeKeyword, onDeleteCourse]);
+
+  const refreshCourseSummary = useCallback(() => {
+    setSummaryRefreshTick((prev) => prev + 1);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAllOfferings = async () => {
+      if (!username) {
+        setAllOfferings([]);
+        return;
+      }
+      try {
+        const res = await axios.get(`${API_BASE_URL}/api/teacher/offerings`, {
+          params: { teacher_username: username },
+        });
+        if (cancelled) return;
+        setAllOfferings(Array.isArray(res.data) ? res.data : []);
+      } catch (error) {
+        if (!cancelled) setAllOfferings([]);
+      }
+    };
+
+    loadAllOfferings();
+    return () => {
+      cancelled = true;
+    };
+  }, [summaryRefreshTick, username]);
+
+  useEffect(() => {
+    setCoverSelectionMap(loadCoverSelectionMap());
+  }, [viewMode]);
+
+  const latestOfferingByCourseId = useMemo(() => {
+    const mapping = {};
+    (allOfferings || []).forEach((item) => {
+      const courseId = String(item?.template_course_id || item?.course_id || '').trim();
+      if (!courseId) return;
+      const current = mapping[courseId];
+      const currentTs = new Date(current?.updated_at || current?.created_at || 0).getTime();
+      const candidateTs = new Date(item?.updated_at || item?.created_at || 0).getTime();
+      if (!current || candidateTs >= currentTs) {
+        mapping[courseId] = item;
+      }
+    });
+    return mapping;
+  }, [allOfferings]);
+
+  const resolveCourseSystemCover = useCallback((course) => {
+    const courseId = String(course?.id || '').trim();
+    const offering = latestOfferingByCourseId[courseId];
+    const offeringId = String(offering?.offering_id || '').trim();
+    const selectedId = offeringId ? String(coverSelectionMap?.[offeringId] || '').trim() : '';
+    const selectedCover = SYSTEM_COVERS.find((item) => item.id === selectedId);
+    if (selectedCover) return selectedCover;
+    const seed = String(offeringId || offering?.offering_code || courseId || 'system-cover-seed');
+    const index = hashString(seed) % SYSTEM_COVERS.length;
+    return SYSTEM_COVERS[index];
+  }, [coverSelectionMap, latestOfferingByCourseId]);
+
+  const renderCourseCover = useCallback((course) => {
+    const cover = resolveCourseSystemCover(course);
+    return (
+      <div className="teacher-course-home-cover">
+        <img src={cover.src} alt={cover.label} />
+        <span>{'\u6559'}</span>
+      </div>
+    );
+  }, [resolveCourseSystemCover]);
+
+  useEffect(() => {
+    setRecycleRows([]);
+  }, [selectedCourseId]);
+
+  useEffect(() => {
+    setActiveManageTab('class-management');
+  }, [selectedCourseId]);
+
+  useEffect(() => {
+    setStatisticsTab('overview');
+    setStatisticsExperimentId('all');
+    setStatisticsKeyword('');
+    setStatisticsStudents([]);
+  }, [selectedCourseId]);
+
+  useEffect(() => {
+    if (detailMenu !== 'management') return;
+    if (activeManageTab === 'student-progress' && typeof onLoadProgress === 'function') {
+      onLoadProgress();
+      return;
+    }
+    if (activeManageTab === 'submission-review') {
+      loadCourseSubmissions();
+    }
+  }, [activeManageTab, detailMenu, loadCourseSubmissions, onLoadProgress]);
+
+  useEffect(() => {
+    if (detailMenu !== 'statistics') return;
+    loadCourseSubmissions();
+    loadStatisticsStudents();
+  }, [detailMenu, loadCourseSubmissions, loadStatisticsStudents]);
+
+  const loadRecycleRows = useCallback(async () => {
+    if (!selectedCourse?.id || typeof onListRecycleExperiments !== 'function') return;
+    setLoadingRecycle(true);
+    try {
+      const rows = await onListRecycleExperiments(selectedCourse.id);
+      setRecycleRows(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      console.error('load recycle failed', error);
+      setRecycleRows([]);
+      alert(getErrorMessage(error, '\u52a0\u8f7d\u56de\u6536\u7ad9\u5931\u8d25'));
+    } finally {
+      setLoadingRecycle(false);
+    }
+  }, [onListRecycleExperiments, selectedCourse?.id]);
+
+  const openRecyclePage = useCallback(async () => {
+    setDetailMenu('recycle');
+    await loadRecycleRows();
+  }, [loadRecycleRows]);
+
+  useEffect(() => {
+    if (detailMenu === 'recycle') {
+      loadRecycleRows();
+    }
+  }, [detailMenu, loadRecycleRows]);
+
+  const handleRestoreFromRecycle = useCallback(async (item) => {
+    if (!item?.id || typeof onRestoreExperiment !== 'function') return;
+    try {
+      await onRestoreExperiment(item.id);
+      await loadRecycleRows();
+      alert('Assignment restored');
+    } catch (error) {
+      console.error('restore experiment failed', error);
+      alert(getErrorMessage(error, '恢复作业失败'));
+    }
+  }, [onRestoreExperiment, loadRecycleRows]);
+
+  const handlePermanentDeleteFromRecycle = useCallback(async (item) => {
+    if (!item?.id || typeof onPermanentDeleteExperiment !== 'function') return;
+    const targetTitle = String(item?.title || '\u8be5\u4f5c\u4e1a');
+    if (!window.confirm(`\u786e\u5b9a\u5f7b\u5e95\u5220\u9664\u4f5c\u4e1a "${targetTitle}" \u5417\uff1f\u8be5\u64cd\u4f5c\u4e0d\u53ef\u6062\u590d\u3002`)) {
+      return;
+    }
+    try {
+      await onPermanentDeleteExperiment(item.id);
+      await loadRecycleRows();
+      alert('\u4f5c\u4e1a\u5df2\u5f7b\u5e95\u5220\u9664');
+    } catch (error) {
+      console.error('permanent delete experiment failed', error);
+      alert(getErrorMessage(error, '\u5f7b\u5e95\u5220\u9664\u4f5c\u4e1a\u5931\u8d25'));
+    }
+  }, [onPermanentDeleteExperiment, loadRecycleRows]);
+
+  const selectedCourseClassCount = useMemo(() => {
+    const courseId = String(selectedCourse?.id || '').trim();
+    if (!courseId) return 0;
+    const classNames = new Set();
+
+    (Array.isArray(allOfferings) ? allOfferings : []).forEach((item) => {
+      const templateCourseId = String(item?.template_course_id || item?.course_id || '').trim();
+      if (!templateCourseId || templateCourseId !== courseId) return;
+      const status = String(item?.status || 'active').trim().toLowerCase();
+      if (status === 'archived') return;
+      const className = String(item?.class_name || '').trim();
+      if (className) classNames.add(className);
+    });
+
+    (Array.isArray(selectedCourseClassNames) ? selectedCourseClassNames : []).forEach((name) => {
+      const normalized = String(name || '').trim();
+      if (normalized) classNames.add(normalized);
+    });
+
+    return classNames.size;
+  }, [allOfferings, selectedCourse?.id, selectedCourseClassNames]);
+
+  useEffect(() => {
+    if (statisticsExperimentId === 'all') return;
+    if (selectedCourseExperimentIdSet.has(statisticsExperimentId)) return;
+    setStatisticsExperimentId('all');
+  }, [selectedCourseExperimentIdSet, statisticsExperimentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const courseId = String(selectedCourse?.id || '').trim();
+
+    if (!courseId || !username) {
+      setSelectedCourseStudentCount(0);
+      setSelectedCourseClassNames([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadCourseSummary = async () => {
+      try {
+        const [studentRes, classRes] = await Promise.allSettled([
+          axios.get(
+            `${API_BASE_URL}/api/teacher/courses/${encodeURIComponent(courseId)}/students`,
+            {
+              params: {
+                teacher_username: username,
+                page: 1,
+                page_size: 1,
+              },
+            }
+          ),
+          axios.get(
+            `${API_BASE_URL}/api/teacher/courses/${encodeURIComponent(courseId)}/students/classes`,
+            {
+              params: { teacher_username: username },
+            }
+          ),
+        ]);
+        if (cancelled) return;
+        if (studentRes.status === 'fulfilled') {
+          setSelectedCourseStudentCount(Number(studentRes.value?.data?.total || 0));
+        } else {
+          setSelectedCourseStudentCount(0);
+        }
+
+        if (classRes.status === 'fulfilled') {
+          const classNames = normalizeStringArray(
+            (Array.isArray(classRes.value?.data) ? classRes.value.data : [])
+              .map((item) => String(item?.value || item?.label || item?.name || '').trim())
+          );
+          setSelectedCourseClassNames(classNames);
+        } else {
+          setSelectedCourseClassNames([]);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSelectedCourseStudentCount(0);
+          setSelectedCourseClassNames([]);
+        }
+      }
+    };
+
+    loadCourseSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCourse?.id, summaryRefreshTick, username]);
+
+  if (loading) return <div className="teacher-lab-loading">{"\u6b63\u5728\u52a0\u8f7d\u8bfe\u7a0b\u5e93..."}</div>;
+
+  if (viewMode === 'home') {
+    return (
+      <div className="teacher-course-home">
+        <div className="teacher-course-home-toolbar">
+          <div className="teacher-course-home-actions">
+            <button type="button" className="teacher-lab-create-btn" onClick={onCreateCourse}>{'+ \u65b0\u5efa\u8bfe\u7a0b'}</button>
             <button
               type="button"
-              className="teacher-lab-btn primary"
-              onClick={() => {
-                sessionStorage.setItem(TEACHER_COURSE_RESUME_KEY, String(course?.id || ''));
-                onOpenExperiment(experiment);
-              }}
+              className="teacher-lab-delete-btn"
+              onClick={handleDeleteCourseFromHome}
+              disabled={!Array.isArray(courses) || courses.length === 0}
             >
-              {'\u6253\u5f00'}
+              {'- \u5220\u9664\u8bfe\u7a0b'}
             </button>
-            <button type="button" className="teacher-lab-btn" onClick={() => onEditExperiment(course, experiment)}>{'\u7f16\u8f91'}</button>
           </div>
-          <div className="teacher-lab-card-actions">
-            <button type="button" className="teacher-lab-btn highlight" onClick={() => onPublishExperiment(course, experiment)}>
-              {experiment.published ? '\u53d6\u6d88\u53d1\u5e03' : '\u53d1\u5e03'}
-            </button>
-            <button type="button" className="teacher-lab-btn danger" onClick={() => onDeleteExperiment(experiment)}>{'\u5220\u9664'}</button>
+          <div className="teacher-course-search-box">
+            <input
+              type="text"
+              value={homeKeyword}
+              onChange={(event) => setHomeKeyword(event.target.value)}
+              placeholder={"\u641c\u7d22"}
+            />
           </div>
-        </article>
-      );
-    });
-  };
+        </div>
 
-  if (loading) return <div className="teacher-lab-loading">{'\u6b63\u5728\u52a0\u8f7d\u8bfe\u7a0b\u5e93...'}</div>;
-
-  if (courses.length === 0) {
-    return (
-      <div className="teacher-lab-course-section">
-        <div className="teacher-lab-empty">{'\u5f53\u524d\u6682\u65e0\u8bfe\u7a0b\uff0c\u8bf7\u5148\u521b\u5efa\u8bfe\u7a0b\u3002'}</div>
+        {filteredHomeCourses.length === 0 ? (
+          <div className="teacher-lab-empty">{"\u6682\u65e0\u8bfe\u7a0b\uff0c\u8bf7\u5148\u521b\u5efa\u8bfe\u7a0b\u3002"}</div>
+        ) : (
+          <div className="teacher-course-home-grid">
+            {filteredHomeCourses.map((course) => (
+              <button
+                key={course.id}
+                type="button"
+                className="teacher-course-home-card"
+                onClick={() => {
+                  setSelectedCourseId(String(course?.id || ''));
+                  setDetailMenu('management');
+                  setActiveManageTab('class-management');
+                  setViewMode('detail');
+                }}
+              >
+                {renderCourseCover(course)}
+                <strong>{course?.name || '\u6211\u7684\u8bfe'}</strong>
+                <span>{course?.created_by || username || '-'}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
 
   if (!selectedCourse) {
     return (
-      <div className="teacher-lab-course-section">
-        <div className="teacher-lab-card-grid">
-          {courses.map((course) => {
-            const { firstExperiment, icon, totalExperiments, publishedCount, allPublished } = buildCourseViewModel(course);
-
-            return (
-              <article className="teacher-lab-card" key={course.id}>
-                <div className={`teacher-lab-logo ${icon.cls}`}><span>{icon.label}</span></div>
-                <h3>{course.name || '\u672a\u547d\u540d\u8bfe\u7a0b'}</h3>
-                <div className="teacher-lab-card-headline">
-                  <span className={`teacher-lab-status ${allPublished ? 'published' : 'draft'}`}>
-                    {allPublished ? '\u8bfe\u7a0b\u5df2\u53d1\u5e03' : `\u5df2\u53d1\u5e03 ${publishedCount}/${totalExperiments}`}
-                  </span>
-                  <span className="teacher-lab-difficulty">{`\u5b9e\u9a8c\u6570\uff1a${totalExperiments}`}</span>
-                </div>
-                <p className="teacher-lab-desc">
-                  {course.description || firstExperiment.description || `\u672c\u8bfe\u7a0b\u5305\u542b ${totalExperiments} \u4e2a\u5b9e\u9a8c\uff0c\u70b9\u51fb\u4e0b\u65b9\u6309\u94ae\u67e5\u770b\u5b9e\u9a8c\u5217\u8868\u3002`}
-                </p>
-                <div className="teacher-lab-chip-row">
-                  {(course.tags?.length ? course.tags : ['\u65e0\u6807\u7b7e']).map((tag) => (
-                    <span key={`${course.id}-${tag}`} className="teacher-lab-chip">{tag}</span>
-                  ))}
-                </div>
-                <div className="teacher-lab-meta-row">{`\u521b\u5efa\u8005\uff1a${course.created_by || '\u672a\u77e5'}`}</div>
-                <div className="teacher-lab-meta-row">{`\u6700\u8fd1\u66f4\u65b0\u65f6\u95f4\uff1a${formatDate(course.updated_at || course.created_at)}`}</div>
-
-                <div className="teacher-lab-card-actions">
-                  <button type="button" className="teacher-lab-btn primary" onClick={() => setSelectedCourseId(course.id)}>{'\u67e5\u770b\u5b9e\u9a8c'}</button>
-                  <button type="button" className="teacher-lab-btn" onClick={() => onCreateExperiment(course)}>{'+ \u6dfb\u52a0\u5b9e\u9a8c'}</button>
-                  <button type="button" className="teacher-lab-btn" onClick={() => onEditCourse(course)}>{'\u7f16\u8f91\u8bfe\u7a0b'}</button>
-                </div>
-
-                <div className="teacher-lab-card-actions">
-                  <button type="button" className="teacher-lab-btn highlight" onClick={() => onPublishCourse(course)}>
-                    {allPublished ? '\u53d6\u6d88\u53d1\u5e03\u8bfe\u7a0b' : '\u53d1\u5e03\u8bfe\u7a0b'}
-                  </button>
-                  <button type="button" className="teacher-lab-btn danger" onClick={() => onDeleteCourse(course)}>{'\u5220\u9664\u8bfe\u7a0b'}</button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+      <div className="teacher-lab-empty">
+        {"\u672a\u627e\u5230\u8bfe\u7a0b\uff0c"}<button type="button" className="teacher-course-inline-btn" onClick={() => setViewMode('home')}>{"\u8fd4\u56de\u9996\u9875"}</button>
       </div>
     );
   }
 
-  const { totalExperiments, publishedCount, allPublished } = buildCourseViewModel(selectedCourse);
+  const sideMenus = [
+    { key: 'management', label: '\u7ba1\u7406', enabled: true },
+    { key: 'resources', label: '\u8d44\u6599', enabled: true },
+    { key: 'assignments', label: '\u4f5c\u4e1a', enabled: true },
+    { key: 'recycle', label: '\u56de\u6536\u7ad9', enabled: true },
+    { key: 'statistics', label: '\u7edf\u8ba1', enabled: true },
+  ];
+
+  const renderResources = () => (
+    <div className="teacher-course-pane">
+      <ResourceFileManagement
+        username={username}
+        courseId={selectedCourse?.id || ''}
+        countLabel={"\u8bfe\u7a0b\u8d44\u6599\u5171"}
+      />
+    </div>
+  );
+
+  const renderAssignments = () => (
+    <div className="teacher-course-pane teacher-course-assignment-pane">
+      <div className="teacher-course-pane-toolbar">
+        <div className="teacher-course-home-actions">
+          <button
+            type="button"
+            className="teacher-lab-create-btn"
+            onClick={() => onCreateExperiment(selectedCourse)}
+          >
+            {'+ \u65b0\u5efa\u4f5c\u4e1a'}
+          </button>
+        </div>
+        <div className="teacher-course-search-box">
+          <input
+            type="text"
+            placeholder={"\u641c\u7d22"}
+            value={assignmentKeyword}
+            onChange={(event) => setAssignmentKeyword(event.target.value)}
+          />
+        </div>
+      </div>
+      {(() => {
+        const rows = (Array.isArray(selectedCourse?.experiments) ? selectedCourse.experiments : [])
+          .filter((item) => {
+            const needle = String(assignmentKeyword || '').trim().toLowerCase();
+            if (!needle) return true;
+            const title = String(item?.title || '').toLowerCase();
+            const desc = String(item?.description || '').toLowerCase();
+            const tags = Array.isArray(item?.tags) ? item.tags.join(' ').toLowerCase() : '';
+            return title.includes(needle) || desc.includes(needle) || tags.includes(needle);
+          });
+
+        if (rows.length === 0) {
+          return <div className="teacher-course-empty-board">{"\u6682\u65e0\u4f5c\u4e1a"}</div>;
+        }
+
+        return (
+          <div className="teacher-course-assignment-list">
+            <div className="teacher-course-assignment-head">
+              <span className="title">{"\u4f5c\u4e1a\u540d\u79f0"}</span>
+              <span>{"\u72b6\u6001"}</span>
+              <span>{"\u96be\u5ea6"}</span>
+              <span>{"\u521b\u5efa\u65f6\u95f4"}</span>
+              <span>{"\u64cd\u4f5c"}</span>
+            </div>
+            {rows.map((item) => (
+              <div key={item?.id || item?.title} className="teacher-course-assignment-row">
+                <div className="title">
+                  <strong>{item?.title || '\u672a\u547d\u540d\u4f5c\u4e1a'}</strong>
+                  <small>{item?.description || '\u6682\u65e0\u63cf\u8ff0'}</small>
+                </div>
+                <span>{item?.published ? '\u5df2\u53d1\u5e03' : '\u8349\u7a3f'}</span>
+                <span>{item?.difficulty || '-'}</span>
+                <span>{formatDateTime(item?.created_at)}</span>
+                <span className="teacher-course-assignment-actions">
+                  <button
+                    type="button"
+                    className="teacher-course-inline-btn"
+                    onClick={() => onEditExperiment(selectedCourse, item)}
+                  >
+                    {'\u7f16\u8f91'}
+                  </button>
+                  <button
+                    type="button"
+                    className="teacher-course-inline-btn danger"
+                    onClick={async () => {
+                      try {
+                        await onDeleteExperiment(selectedCourse, item);
+                      } catch (error) {
+                        console.error('delete experiment failed', error);
+                        alert(getErrorMessage(error, '\u5220\u9664\u4f5c\u4e1a\u5931\u8d25'));
+                      }
+                    }}
+                  >
+                    {'\u5220\u9664'}
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+      <div className="teacher-course-recycle">
+        <button type="button" className="teacher-course-recycle-link" onClick={openRecyclePage}>{"\u56de\u6536\u7ad9"}</button>
+      </div>
+    </div>
+  );
+
+  const renderRecycle = () => (
+    <div className="teacher-course-pane teacher-course-assignment-pane">
+      <div className="teacher-course-pane-toolbar">
+        <div className="teacher-course-home-actions">
+          <button type="button" className="teacher-course-outline-btn" onClick={() => setDetailMenu('assignments')}>
+            {"\u8fd4\u56de\u4f5c\u4e1a"}
+          </button>
+        </div>
+        <button
+          type="button"
+          className="teacher-course-plain-btn"
+          onClick={() => loadRecycleRows()}
+          disabled={loadingRecycle}
+        >
+          {"\u5237\u65b0"}
+        </button>
+      </div>
+
+      <div className="teacher-course-recycle-panel">
+        <div className="teacher-course-recycle-head">
+          <strong>{"\u56de\u6536\u7ad9"}</strong>
+          <span className="teacher-course-recycle-tip">{"\u5220\u9664\u540e\u7684\u4f5c\u4e1a\u572830\u5929\u5185\u53ef\u6062\u590d"}</span>
+        </div>
+
+        {loadingRecycle ? (
+          <div className="teacher-course-recycle-empty">{"\u6b63\u5728\u52a0\u8f7d\u56de\u6536\u7ad9..."}</div>
+        ) : recycleRows.length === 0 ? (
+          <div className="teacher-course-recycle-empty">{"\u56de\u6536\u7ad9\u4e3a\u7a7a"}</div>
+        ) : (
+          <div className="teacher-course-assignment-list teacher-course-recycle-list">
+            <div className="teacher-course-assignment-head">
+              <span className="title">{"\u4f5c\u4e1a\u540d\u79f0"}</span>
+              <span>{"\u5220\u9664\u65f6\u95f4"}</span>
+              <span>{"\u8fc7\u671f\u65f6\u95f4"}</span>
+              <span>{"\u72b6\u6001"}</span>
+              <span>{"\u64cd\u4f5c"}</span>
+            </div>
+            {recycleRows.map((item) => (
+              <div key={item?.id || item?.title} className="teacher-course-assignment-row">
+                <div className="title">
+                  <strong>{item?.title || '\u672a\u547d\u540d\u4f5c\u4e1a'}</strong>
+                  <small>{item?.description || '\u6682\u65e0\u63cf\u8ff0'}</small>
+                </div>
+                <span>{formatDateTime(item?.deleted_at)}</span>
+                <span>{formatDateTime(item?.expires_at)}</span>
+                <span>{"\u53ef\u6062\u590d"}</span>
+                <span className="teacher-course-assignment-actions">
+                  <button
+                    type="button"
+                    className="teacher-course-inline-btn"
+                    onClick={() => handleRestoreFromRecycle(item)}
+                  >
+                    {'\u6062\u590d'}
+                  </button>
+                  <button
+                    type="button"
+                    className="teacher-course-inline-btn danger"
+                    onClick={() => handlePermanentDeleteFromRecycle(item)}
+                  >
+                    {'\u5f7b\u5e95\u5220\u9664'}
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  const manageTabs = [
+    { key: 'class-management', label: '\u73ed\u7ea7\u7ba1\u7406', enabled: true },
+    { key: 'teacher-team', label: '\u6559\u5e08\u56e2\u961f\u7ba1\u7406', enabled: true },
+    { key: 'student-progress', label: '\u5b66\u751f\u8fdb\u5ea6', enabled: true },
+    { key: 'submission-review', label: '\u63d0\u4ea4\u5ba1\u9605', enabled: true },
+    { key: 'course-management', label: '\u8bfe\u7a0b\u7ba1\u7406', enabled: true },
+  ];
+
+  const renderClassManagement = () => (
+    <div className="teacher-course-manage-content">
+      <TeacherUserManagement
+        username={username}
+        userRole={userRole}
+        courseId={selectedCourse?.id || ''}
+        onRosterChanged={refreshCourseSummary}
+      />
+    </div>
+  );
+
+  const renderCourseManagement = () => (
+    <div className="teacher-course-manage-content">
+      <OfferingDetail
+        username={username}
+        courseId={selectedCourse?.id || ''}
+        courseName={selectedCourse?.name || ''}
+        courseTeacher={selectedCourse?.created_by || username || ''}
+        embedded
+      />
+    </div>
+  );
+
+  const renderTeacherTeamManagement = () => (
+    <div className="teacher-course-manage-content">
+      <TeacherTeamManagement username={username} courseId={selectedCourse?.id || ''} />
+    </div>
+  );
+
+  const renderProgressManagement = () => (
+    <div className="teacher-course-manage-content">
+      <div className="teacher-course-manage-toolbar">
+        <button type="button" className="teacher-course-plain-btn" onClick={() => typeof onLoadProgress === 'function' && onLoadProgress()}>
+          {'\u5237\u65b0\u6570\u636e'}
+        </button>
+      </div>
+      <ProgressPanel progress={filteredCourseProgress} loading={loadingProgress} courseMap={courseMap} />
+    </div>
+  );
+
+  const renderReviewManagement = () => (
+    <div className="teacher-course-manage-content">
+      <div className="teacher-course-manage-toolbar">
+        <button type="button" className="teacher-course-plain-btn" onClick={loadCourseSubmissions}>
+          {'\u5237\u65b0\u6570\u636e'}
+        </button>
+      </div>
+      <div className="teacher-lab-section">
+        <TeacherReview
+          username={username}
+          submissions={filteredCourseSubmissions}
+          loading={loadingSubmissions}
+          onGrade={handleGradeSubmission}
+        />
+      </div>
+    </div>
+  );
+
+  const renderManagement = () => (
+    <div className="teacher-course-pane teacher-course-manage-pane">
+      <div className="teacher-course-manage-tabs">
+        {manageTabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            className={activeManageTab === tab.key ? 'active' : ''}
+            disabled={!tab.enabled}
+            onClick={() => {
+              if (!tab.enabled) return;
+              setActiveManageTab(tab.key);
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeManageTab === 'class-management' ? renderClassManagement() : null}
+      {activeManageTab === 'teacher-team' ? renderTeacherTeamManagement() : null}
+      {activeManageTab === 'student-progress' ? renderProgressManagement() : null}
+      {activeManageTab === 'submission-review' ? renderReviewManagement() : null}
+      {activeManageTab === 'course-management' ? renderCourseManagement() : null}
+      {activeManageTab !== 'class-management' && activeManageTab !== 'teacher-team' && activeManageTab !== 'student-progress' && activeManageTab !== 'submission-review' && activeManageTab !== 'course-management' ? (
+        <div className="teacher-course-empty-board">{'\u8be5\u529f\u80fd\u6b63\u5728\u5efa\u8bbe\u4e2d'}</div>
+      ) : null}
+    </div>
+  );
+
+  const renderStatistics = () => {
+    const experimentOptions = [
+      { id: 'all', title: '\u5168\u90e8\u4f5c\u4e1a' },
+      ...selectedCourseExperiments.map((item) => ({
+        id: String(item?.id || '').trim(),
+        title: String(item?.title || '').trim() || '\u672a\u547d\u540d\u4f5c\u4e1a',
+      })),
+    ];
+
+    const experimentMap = {};
+    selectedCourseExperiments.forEach((item) => {
+      const experimentId = String(item?.id || '').trim();
+      if (!experimentId) return;
+      experimentMap[experimentId] = {
+        id: experimentId,
+        title: String(item?.title || '').trim() || '\u672a\u547d\u540d\u4f5c\u4e1a',
+      };
+    });
+
+    const keywordNeedle = String(statisticsKeyword || '').trim().toLowerCase();
+    const visibleStudents = (Array.isArray(statisticsStudents) ? statisticsStudents : []).filter((student) => {
+      if (!keywordNeedle) return true;
+      const studentId = String(student?.student_id || '').toLowerCase();
+      const realName = String(student?.real_name || '').toLowerCase();
+      const className = String(student?.class_name || '').toLowerCase();
+      return studentId.includes(keywordNeedle) || realName.includes(keywordNeedle) || className.includes(keywordNeedle);
+    });
+
+    const selectedExperiments = statisticsExperimentId === 'all'
+      ? selectedCourseExperiments
+      : selectedCourseExperiments.filter((item) => String(item?.id || '').trim() === statisticsExperimentId);
+    const totalAssignmentCount = selectedExperiments.length;
+
+    const submissionMap = new Map();
+    (Array.isArray(filteredCourseSubmissions) ? filteredCourseSubmissions : []).forEach((item) => {
+      const studentId = String(item?.student_id || '').trim();
+      const experimentId = String(item?.experiment_id || '').trim();
+      if (!studentId || !experimentId) return;
+      const key = `${studentId}::${experimentId}`;
+      const existing = submissionMap.get(key);
+      if (!existing) {
+        submissionMap.set(key, item);
+        return;
+      }
+      const existingTs = new Date(existing?.submit_time || existing?.updated_at || existing?.created_at || 0).getTime();
+      const candidateTs = new Date(item?.submit_time || item?.updated_at || item?.created_at || 0).getTime();
+      if (candidateTs >= existingTs) submissionMap.set(key, item);
+    });
+
+    const buildSubmissionSnapshot = (submission) => {
+      const statusKey = progressStatusKey(submission?.status);
+      const scoreValue = toNumericScore(submission?.score);
+      const hasSubmitted = Boolean(
+        submission
+          && (statusKey === 'submitted' || statusKey === 'graded' || submission?.submit_time)
+      );
+      const missing = !hasSubmitted || scoreValue === null;
+      return {
+        missing,
+        scoreValue,
+        scoreText: missing ? '\u7f3a\u4ea4' : formatScoreValue(scoreValue),
+        statusText: missing ? '\u7f3a\u4ea4' : (statusKey === 'graded' ? '\u5df2\u8bc4\u5206' : '\u5df2\u63d0\u4ea4'),
+        submitTimeText: missing ? '\u7f3a\u4ea4' : formatDateTime(submission?.submit_time),
+      };
+    };
+
+    const aggregateRows = visibleStudents.map((student) => {
+      const studentId = String(student?.student_id || '').trim();
+      let scoreSum = 0;
+      let submittedCount = 0;
+
+      selectedExperiments.forEach((experiment) => {
+        const experimentId = String(experiment?.id || '').trim();
+        const submission = submissionMap.get(`${studentId}::${experimentId}`);
+        const snapshot = buildSubmissionSnapshot(submission);
+        if (snapshot.missing) return;
+        submittedCount += 1;
+        scoreSum += snapshot.scoreValue || 0;
+      });
+
+      const missingCount = Math.max(totalAssignmentCount - submittedCount, 0);
+      const averageScore = submittedCount > 0 ? (scoreSum / submittedCount) : null;
+      return {
+        student_id: studentId || '-',
+        real_name: String(student?.real_name || '').trim() || '-',
+        class_name: String(student?.class_name || '').trim() || '-',
+        submitted_count: submittedCount,
+        missing_count: missingCount,
+        average_score: averageScore,
+      };
+    });
+
+    const singleAssignment = statisticsExperimentId === 'all' ? null : experimentMap[statisticsExperimentId];
+    const singleRows = singleAssignment ? visibleStudents.map((student) => {
+      const studentId = String(student?.student_id || '').trim();
+      const submission = submissionMap.get(`${studentId}::${singleAssignment.id}`);
+      const snapshot = buildSubmissionSnapshot(submission);
+      return {
+        student_id: studentId || '-',
+        real_name: String(student?.real_name || '').trim() || '-',
+        class_name: String(student?.class_name || '').trim() || '-',
+        assignment_name: singleAssignment.title,
+        ...snapshot,
+      };
+    }) : [];
+
+    const summary = (() => {
+      const scoreValues = statisticsExperimentId === 'all'
+        ? aggregateRows.map((item) => toNumericScore(item.average_score)).filter((item) => item !== null)
+        : singleRows.map((item) => toNumericScore(item.scoreValue)).filter((item) => item !== null);
+      const expectedCount = statisticsExperimentId === 'all'
+        ? visibleStudents.length * totalAssignmentCount
+        : singleRows.length;
+      const submittedCount = statisticsExperimentId === 'all'
+        ? aggregateRows.reduce((acc, item) => acc + item.submitted_count, 0)
+        : singleRows.filter((item) => !item.missing).length;
+      const missingStudentCount = statisticsExperimentId === 'all'
+        ? aggregateRows.filter((item) => item.missing_count > 0).length
+        : singleRows.filter((item) => item.missing).length;
+      const averageScore = scoreValues.length > 0
+        ? (scoreValues.reduce((acc, item) => acc + item, 0) / scoreValues.length)
+        : null;
+      const maxScore = scoreValues.length > 0 ? Math.max(...scoreValues) : null;
+      const minScore = scoreValues.length > 0 ? Math.min(...scoreValues) : null;
+      const submissionRate = expectedCount > 0 ? ((submittedCount / expectedCount) * 100) : 0;
+      return {
+        averageScore,
+        maxScore,
+        minScore,
+        submissionRate,
+        missingStudentCount,
+      };
+    })();
+
+    const exportRows = [];
+    if (totalAssignmentCount > 0) {
+      visibleStudents.forEach((student) => {
+        const studentId = String(student?.student_id || '').trim();
+        selectedExperiments.forEach((experiment) => {
+          const experimentId = String(experiment?.id || '').trim();
+          const assignmentName = String(experiment?.title || '').trim() || '\u672a\u547d\u540d\u4f5c\u4e1a';
+          const submission = submissionMap.get(`${studentId}::${experimentId}`);
+          const snapshot = buildSubmissionSnapshot(submission);
+          exportRows.push({
+            '\u5b66\u53f7': studentId || '-',
+            '\u59d3\u540d': String(student?.real_name || '').trim() || '-',
+            '\u73ed\u7ea7': String(student?.class_name || '').trim() || '-',
+            '\u4f5c\u4e1a\u540d\u79f0': assignmentName,
+            '\u6210\u7ee9': snapshot.scoreText,
+            '\u63d0\u4ea4\u72b6\u6001': snapshot.statusText,
+            '\u63d0\u4ea4\u65f6\u95f4': snapshot.submitTimeText,
+          });
+        });
+      });
+    }
+
+    const handleExportScores = () => {
+      if (exportRows.length === 0) {
+        alert('\u5f53\u524d\u7b5b\u9009\u6761\u4ef6\u4e0b\u6682\u65e0\u53ef\u5bfc\u51fa\u6210\u7ee9');
+        return;
+      }
+      const headers = ['\u5b66\u53f7', '\u59d3\u540d', '\u73ed\u7ea7', '\u4f5c\u4e1a\u540d\u79f0', '\u6210\u7ee9', '\u63d0\u4ea4\u72b6\u6001', '\u63d0\u4ea4\u65f6\u95f4'];
+      const lines = [
+        headers.map((item) => csvEscape(item)).join(','),
+        ...exportRows.map((row) => headers.map((field) => csvEscape(row[field])).join(',')),
+      ];
+      const csv = lines.join('\r\n');
+      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const courseName = String(selectedCourse?.name || 'course').trim() || 'course';
+      const selectedAssignmentName = statisticsExperimentId === 'all'
+        ? 'all-assignments'
+        : (experimentMap[statisticsExperimentId]?.title || 'assignment');
+      const safeCourseName = courseName.replace(/[\\/:*?"<>|]/g, '_');
+      const safeAssignmentName = String(selectedAssignmentName).replace(/[\\/:*?"<>|]/g, '_');
+      link.href = url;
+      link.download = `${safeCourseName}-${safeAssignmentName}-scores.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    };
+
+    return (
+      <div className="teacher-course-stat-layout">
+        <div className="teacher-course-stat-top">
+          <div className="teacher-course-stat-main">
+            <h2>{selectedCourse?.name || '\u6211\u7684\u8bfe'}</h2>
+            <p>{`\u8bfe\u7a0b\u6559\u5e08\uff1a${selectedCourse?.created_by || username || '-'}`}</p>
+          </div>
+          <div className="teacher-course-stat-metrics">
+            <div><span>{'\u73ed\u7ea7\u6570'}</span><strong>{selectedCourseClassCount}</strong><em>{'\u4e2a'}</em></div>
+            <div><span>{'\u9009\u8bfe\u5b66\u751f\u6570'}</span><strong>{selectedCourseStudentCount}</strong><em>{'\u4eba'}</em></div>
+          </div>
+        </div>
+
+        <div className="teacher-course-stat-tabs">
+          <button
+            type="button"
+            className={statisticsTab === 'overview' ? 'active' : ''}
+            onClick={() => setStatisticsTab('overview')}
+          >
+            {'\u57fa\u7840\u6570\u636e'}
+          </button>
+          <button
+            type="button"
+            className={statisticsTab === 'scores' ? 'active' : ''}
+            onClick={() => setStatisticsTab('scores')}
+          >
+            {'\u5b66\u751f\u6210\u7ee9'}
+          </button>
+        </div>
+
+        <div className="teacher-course-stat-grid">
+          {statisticsTab === 'overview' ? (
+            <section className="teacher-course-stat-card">
+              <h3>{'\u5b66\u60c5\u6982\u89c8'}</h3>
+              <div className="teacher-course-stat-band">
+                <div><span>{'\u8fd1\u4e00\u4e2a\u6708\u6d3b\u8dc3\u5b66\u751f\u6570'}</span><strong>0</strong><em>{'\u4eba'}</em></div>
+                <div><span>{'\u8fd1\u4e00\u4e2a\u6708\u5e08\u751f\u6d3b\u52a8\u6570'}</span><strong>0</strong><em>{'\u6b21'}</em></div>
+                <div><span>{'\u8fd1\u4e00\u4e2a\u6708\u6d3b\u8dc3\u73ed\u7ea7\u6570'}</span><strong>0</strong><em>{'\u4e2a'}</em></div>
+              </div>
+              <div className="teacher-course-heatmap-placeholder"><strong>{'\u8fd17\u65e5\u5b66\u751f\u5728\u7ebf\u5b66\u4e60\u70ed\u529b\u56fe'}</strong></div>
+            </section>
+          ) : (
+            <section className="teacher-course-stat-card">
+              <h3>{'\u5b66\u751f\u6210\u7ee9'}</h3>
+              <div className="teacher-course-score-toolbar">
+                <div className="teacher-course-score-controls">
+                  <label htmlFor="teacher-score-assignment-filter">{'\u4f5c\u4e1a'}</label>
+                  <select
+                    id="teacher-score-assignment-filter"
+                    value={statisticsExperimentId}
+                    onChange={(event) => setStatisticsExperimentId(event.target.value)}
+                  >
+                    {experimentOptions.map((item) => (
+                      <option key={item.id} value={item.id}>{item.title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="teacher-course-score-controls grow">
+                  <label htmlFor="teacher-score-search">{'\u641c\u7d22'}</label>
+                  <input
+                    id="teacher-score-search"
+                    type="text"
+                    value={statisticsKeyword}
+                    onChange={(event) => setStatisticsKeyword(event.target.value)}
+                    placeholder={'\u8bf7\u8f93\u5165\u5b66\u53f7/\u59d3\u540d/\u73ed\u7ea7'}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="teacher-lab-create-btn"
+                  onClick={handleExportScores}
+                  disabled={loadingSubmissions || loadingStatisticsStudents || exportRows.length === 0}
+                >
+                  {'\u5bfc\u51fa\u6210\u7ee9'}
+                </button>
+              </div>
+
+              <div className="teacher-course-score-band">
+                <div><span>{'\u5e73\u5747\u5206'}</span><strong>{summary.averageScore === null ? '--' : formatScoreValue(summary.averageScore)}</strong></div>
+                <div><span>{'\u6700\u9ad8\u5206'}</span><strong>{summary.maxScore === null ? '--' : formatScoreValue(summary.maxScore)}</strong></div>
+                <div><span>{'\u6700\u4f4e\u5206'}</span><strong>{summary.minScore === null ? '--' : formatScoreValue(summary.minScore)}</strong></div>
+                <div><span>{'\u63d0\u4ea4\u7387'}</span><strong>{`${summary.submissionRate.toFixed(1)}%`}</strong></div>
+                <div><span>{'\u7f3a\u4ea4\u4eba\u6570'}</span><strong>{summary.missingStudentCount}</strong></div>
+              </div>
+
+              {loadingSubmissions || loadingStatisticsStudents ? (
+                <div className="teacher-course-score-empty">{'\u6b63\u5728\u52a0\u8f7d\u6210\u7ee9\u6570\u636e...'}</div>
+              ) : totalAssignmentCount === 0 ? (
+                <div className="teacher-course-score-empty">{'\u5f53\u524d\u8bfe\u7a0b\u6682\u65e0\u4f5c\u4e1a'}</div>
+              ) : (
+                <div className="teacher-lab-table-wrap">
+                  <table className="teacher-lab-table teacher-course-score-table">
+                    <thead>
+                      {statisticsExperimentId === 'all' ? (
+                        <tr>
+                          <th>{'\u5b66\u53f7'}</th>
+                          <th>{'\u59d3\u540d'}</th>
+                          <th>{'\u73ed\u7ea7'}</th>
+                          <th>{'\u5e73\u5747\u5206'}</th>
+                          <th>{'\u5df2\u4ea4\u4f5c\u4e1a\u6570'}</th>
+                          <th>{'\u7f3a\u4ea4\u4f5c\u4e1a\u6570'}</th>
+                        </tr>
+                      ) : (
+                        <tr>
+                          <th>{'\u5b66\u53f7'}</th>
+                          <th>{'\u59d3\u540d'}</th>
+                          <th>{'\u73ed\u7ea7'}</th>
+                          <th>{'\u4f5c\u4e1a\u540d\u79f0'}</th>
+                          <th>{'\u6210\u7ee9'}</th>
+                          <th>{'\u63d0\u4ea4\u72b6\u6001'}</th>
+                          <th>{'\u63d0\u4ea4\u65f6\u95f4'}</th>
+                        </tr>
+                      )}
+                    </thead>
+                    <tbody>
+                      {statisticsExperimentId === 'all' ? (
+                        aggregateRows.length === 0 ? (
+                          <tr>
+                            <td colSpan="6" className="teacher-lab-empty-row">{'\u5f53\u524d\u7b5b\u9009\u6761\u4ef6\u4e0b\u6682\u65e0\u6570\u636e'}</td>
+                          </tr>
+                        ) : (
+                          aggregateRows.map((row) => (
+                            <tr key={`${row.student_id}-aggregate`}>
+                              <td>{row.student_id}</td>
+                              <td>{row.real_name}</td>
+                              <td>{row.class_name}</td>
+                              <td>
+                                {row.average_score === null ? (
+                                  <span className="teacher-course-missing-text">{'\u7f3a\u4ea4'}</span>
+                                ) : formatScoreValue(row.average_score)}
+                              </td>
+                              <td>{row.submitted_count}</td>
+                              <td>
+                                {row.missing_count > 0 ? (
+                                  <span className="teacher-course-missing-text">{row.missing_count}</span>
+                                ) : row.missing_count}
+                              </td>
+                            </tr>
+                          ))
+                        )
+                      ) : (
+                        singleRows.length === 0 ? (
+                          <tr>
+                            <td colSpan="7" className="teacher-lab-empty-row">{'\u5f53\u524d\u7b5b\u9009\u6761\u4ef6\u4e0b\u6682\u65e0\u6570\u636e'}</td>
+                          </tr>
+                        ) : (
+                          singleRows.map((row) => (
+                            <tr key={`${row.student_id}-${row.assignment_name}`}>
+                              <td>{row.student_id}</td>
+                              <td>{row.real_name}</td>
+                              <td>{row.class_name}</td>
+                              <td>{row.assignment_name}</td>
+                              <td>
+                                {row.missing ? (
+                                  <span className="teacher-course-missing-text">{'\u7f3a\u4ea4'}</span>
+                                ) : row.scoreText}
+                              </td>
+                              <td>
+                                {row.missing ? (
+                                  <span className="teacher-course-missing-text">{'\u7f3a\u4ea4'}</span>
+                                ) : row.statusText}
+                              </td>
+                              <td>
+                                {row.missing ? (
+                                  <span className="teacher-course-missing-text">{'\u7f3a\u4ea4'}</span>
+                                ) : row.submitTimeText}
+                              </td>
+                            </tr>
+                          ))
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderContent = () => {
+    if (detailMenu === 'resources') return renderResources();
+    if (detailMenu === 'assignments') return renderAssignments();
+    if (detailMenu === 'recycle') return renderRecycle();
+    if (detailMenu === 'management') return renderManagement();
+    if (detailMenu === 'statistics') return renderStatistics();
+    return renderResources();
+  };
 
   return (
-    <div className="teacher-lab-course-section">
-      <div className="teacher-lab-course-head">
-        <button type="button" className="teacher-lab-course-back" onClick={() => setSelectedCourseId('')}>
-          {'\u8fd4\u56de\u8bfe\u7a0b\u5e93'}
+    <div className="teacher-course-detail-shell">
+      <aside className="teacher-course-detail-sidebar">
+        <button type="button" className="teacher-course-detail-cover" onClick={() => setViewMode('home')}>
+          {renderCourseCover(selectedCourse)}
+          <div className="teacher-course-detail-cover-links"><span>{'\u8bfe\u7a0b\u95e8\u6237'}</span><span>{'\u94fe\u63a5'}</span></div>
         </button>
-        <span className="teacher-lab-course-pill">
-          {`${selectedCourse.name || '\u672a\u547d\u540d\u8bfe\u7a0b'} \u00b7 \u5b9e\u9a8c\u6570\uff1a${totalExperiments}`}
-        </span>
-      </div>
+        <div className="teacher-course-detail-title">{selectedCourse?.name || '\u6211\u7684\u8bfe'}</div>
 
-      <div className="teacher-lab-course-tools">
-        <button type="button" className="teacher-lab-btn primary" onClick={() => onCreateExperiment(selectedCourse)}>{'+ \u6dfb\u52a0\u5b9e\u9a8c'}</button>
-        <button type="button" className="teacher-lab-btn" onClick={() => onEditCourse(selectedCourse)}>{'\u7f16\u8f91\u8bfe\u7a0b'}</button>
-        <button type="button" className="teacher-lab-btn highlight" onClick={() => onPublishCourse(selectedCourse)}>
-          {allPublished ? '\u53d6\u6d88\u53d1\u5e03\u8bfe\u7a0b' : `\u53d1\u5e03\u8bfe\u7a0b(${publishedCount}/${totalExperiments})`}
-        </button>
-        <button type="button" className="teacher-lab-btn danger" onClick={() => onDeleteCourse(selectedCourse)}>{'\u5220\u9664\u8bfe\u7a0b'}</button>
-      </div>
+        <div className="teacher-course-detail-menu">
+          {sideMenus.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={detailMenu === item.key ? 'active' : ''}
+              disabled={!item.enabled}
+              onClick={() => item.enabled && setDetailMenu(item.key)}
+            >
+              <span className="dot" />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
 
-      <div className="teacher-lab-card-grid teacher-lab-experiment-grid">
-        {renderExperimentList(selectedCourse)}
-      </div>
+      <main className="teacher-course-detail-main">
+        {renderContent()}
+      </main>
     </div>
   );
 }
@@ -857,29 +1861,29 @@ function ProgressPanel({ progress, loading, courseMap }) {
   }, [filter, progress]);
 
   const statusLabel = {
-    'not-started': '未开始',
-    'in-progress': '进行中',
-    submitted: '已提交',
-    graded: '已评分',
+    'not-started': '\u672a\u5f00\u59cb',
+    'in-progress': '\u8fdb\u884c\u4e2d',
+    submitted: '\u5df2\u63d0\u4ea4',
+    graded: '\u5df2\u8bc4\u5206',
   };
 
-  if (loading) return <div className="teacher-lab-loading">正在加载学生进度...</div>;
+  if (loading) return <div className="teacher-lab-loading">{'\u6b63\u5728\u52a0\u8f7d\u5b66\u751f\u8fdb\u5ea6...'}</div>;
 
   return (
     <div className="teacher-lab-section teacher-lab-progress">
       <div className="teacher-lab-progress-stats">
-        <div className="teacher-lab-progress-stat"><span>总记录</span><strong>{total}</strong></div>
-        <div className="teacher-lab-progress-stat success"><span>已完成</span><strong>{completed}</strong></div>
-        <div className="teacher-lab-progress-stat warning"><span>未完成</span><strong>{pending}</strong></div>
-        <div className="teacher-lab-progress-stat info"><span>完成率</span><strong>{rate}%</strong></div>
+        <div className="teacher-lab-progress-stat"><span>{'\u603b\u4efb\u52a1'}</span><strong>{total}</strong></div>
+        <div className="teacher-lab-progress-stat success"><span>{'\u5df2\u5b8c\u6210'}</span><strong>{completed}</strong></div>
+        <div className="teacher-lab-progress-stat warning"><span>{'\u672a\u5b8c\u6210'}</span><strong>{pending}</strong></div>
+        <div className="teacher-lab-progress-stat info"><span>{'\u5b8c\u6210\u7387'}</span><strong>{rate}%</strong></div>
       </div>
 
       <div className="teacher-lab-filter-row">
-        <label htmlFor="teacher-progress-filter">状态筛选：</label>
+        <label htmlFor="teacher-progress-filter">{'\u72b6\u6001\u7b5b\u9009\uff1a'}</label>
         <select id="teacher-progress-filter" value={filter} onChange={(event) => setFilter(event.target.value)}>
-          <option value="all">全部</option>
-          <option value="completed">已完成</option>
-          <option value="incomplete">未完成</option>
+          <option value="all">{'\u5168\u90e8'}</option>
+          <option value="completed">{'\u5df2\u5b8c\u6210'}</option>
+          <option value="incomplete">{'\u672a\u5b8c\u6210'}</option>
         </select>
       </div>
 
@@ -887,18 +1891,18 @@ function ProgressPanel({ progress, loading, courseMap }) {
         <table className="teacher-lab-table">
           <thead>
             <tr>
-              <th>学号</th>
-              <th>实验</th>
-              <th>状态</th>
-              <th>开始时间</th>
-              <th>提交时间</th>
-              <th>分数</th>
+              <th>{'\u7528\u6237\u6807\u8bc6'}</th>
+              <th>{'\u5b9e\u9a8c\u6807\u9898'}</th>
+              <th>{'\u72b6\u6001'}</th>
+              <th>{'\u5f00\u59cb\u65f6\u95f4'}</th>
+              <th>{'\u63d0\u4ea4\u65f6\u95f4'}</th>
+              <th>{'\u8bc4\u5206'}</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan="6" className="teacher-lab-empty-row">当前筛选条件下暂无数据</td>
+                <td colSpan="6" className="teacher-lab-empty-row">{'\u5f53\u524d\u7b5b\u9009\u6761\u4ef6\u4e0b\u6682\u65e0\u6570\u636e'}</td>
               </tr>
             ) : (
               rows.map((item, index) => {
@@ -932,7 +1936,7 @@ function TeacherProfilePanel({ username, userRole }) {
   const [securityAnswer, setSecurityAnswer] = useState('');
   const [securityQuestionSet, setSecurityQuestionSet] = useState(false);
 
-  const roleLabel = userRole === 'admin' ? '系统管理员' : '教师管理员';
+  const roleLabel = userRole === 'admin' ? 'System Admin' : 'Teacher Admin';
 
   useEffect(() => {
     let cancelled = false;
@@ -965,17 +1969,17 @@ function TeacherProfilePanel({ username, userRole }) {
     if (submitting) return;
 
     if (newPassword.length < 6) {
-      alert('新密码长度不能少于6位');
+      alert('New password must be at least 6 characters.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      alert('两次输入的新密码不一致');
+      alert('The two new passwords do not match.');
       return;
     }
 
     if (newPassword === currentPassword) {
-      alert('新密码不能与旧密码相同');
+      alert('New password cannot be the same as current password.');
       return;
     }
 
@@ -993,12 +1997,12 @@ function TeacherProfilePanel({ username, userRole }) {
         localStorage.setItem('rememberedPassword', newPassword);
       }
 
-      alert(response.data?.message || '密码修改成功');
+      alert(response.data?.message || '\u5bc6\u7801\u4fdd\u5b58\u6210\u529f');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (error) {
-      alert(getErrorMessage(error, '修改密码失败'));
+      alert(getErrorMessage(error, '\u4fdd\u5b58\u5bc6\u7801\u5931\u8d25'));
     } finally {
       setSubmitting(false);
     }
@@ -1011,11 +2015,11 @@ function TeacherProfilePanel({ username, userRole }) {
     const normalizedQuestion = String(securityQuestion || '').trim();
     const normalizedAnswer = String(securityAnswer || '').trim();
     if (normalizedQuestion.length < 2) {
-      alert('密保问题至少2个字符');
+      alert('Security question must be at least 2 characters.');
       return;
     }
     if (normalizedAnswer.length < 2) {
-      alert('密保答案至少2个字符');
+      alert('Security answer must be at least 2 characters.');
       return;
     }
 
@@ -1026,12 +2030,12 @@ function TeacherProfilePanel({ username, userRole }) {
         security_question: normalizedQuestion,
         security_answer: normalizedAnswer,
       });
-      alert(response.data?.message || '密保问题已保存');
+      alert(response.data?.message || 'Security question saved.');
       setSecurityQuestion(normalizedQuestion);
       setSecurityQuestionSet(true);
       setSecurityAnswer('');
     } catch (error) {
-      alert(getErrorMessage(error, '保存密保失败'));
+      alert(getErrorMessage(error, '保存密保问题失败'));
     } finally {
       setSecuritySubmitting(false);
     }
@@ -1040,31 +2044,31 @@ function TeacherProfilePanel({ username, userRole }) {
   return (
     <div className="teacher-profile-panel">
       <div className="teacher-profile-card">
-        <h3>个人信息</h3>
+        <h3>{'\u4e2a\u4eba\u4fe1\u606f'}</h3>
         <div className="teacher-profile-grid">
           <div className="teacher-profile-item">
-            <span>账号</span>
+            <span>{'\u8d26\u53f7'}</span>
             <strong>{username || '-'}</strong>
           </div>
           <div className="teacher-profile-item">
-            <span>角色</span>
+            <span>{'\u89d2\u8272'}</span>
             <strong>{roleLabel}</strong>
           </div>
           <div className="teacher-profile-item">
-            <span>安全说明</span>
-            <strong>修改后立即生效</strong>
+            <span>{'\u5b89\u5168\u8bf4\u660e'}</span>
+            <strong>{'\u4fee\u6539\u540e\u7acb\u5373\u751f\u6548'}</strong>
           </div>
           <div className="teacher-profile-item">
-            <span>密码规则</span>
-            <strong>至少 6 位</strong>
+            <span>{'\u5bc6\u7801\u5f3a\u5ea6'}</span>
+            <strong>{'\u81f3\u5c11 6 \u4f4d'}</strong>
           </div>
         </div>
       </div>
 
       <div className="teacher-profile-card">
-        <h3>修改密码</h3>
+        <h3>{'\u4fee\u6539\u767b\u5f55\u5bc6\u7801'}</h3>
         <form className="teacher-profile-form" onSubmit={handleSubmit}>
-          <label htmlFor="teacher-current-password">当前密码</label>
+          <label htmlFor="teacher-current-password">{'\u5f53\u524d\u5bc6\u7801'}</label>
           <input
             id="teacher-current-password"
             type="password"
@@ -1074,7 +2078,7 @@ function TeacherProfilePanel({ username, userRole }) {
             required
           />
 
-          <label htmlFor="teacher-new-password">新密码</label>
+          <label htmlFor="teacher-new-password">{'\u65b0\u5bc6\u7801'}</label>
           <input
             id="teacher-new-password"
             type="password"
@@ -1085,7 +2089,7 @@ function TeacherProfilePanel({ username, userRole }) {
             required
           />
 
-          <label htmlFor="teacher-confirm-password">确认新密码</label>
+          <label htmlFor="teacher-confirm-password">{'\u786e\u8ba4\u65b0\u5bc6\u7801'}</label>
           <input
             id="teacher-confirm-password"
             type="password"
@@ -1096,40 +2100,40 @@ function TeacherProfilePanel({ username, userRole }) {
             required
           />
 
-          <p className="teacher-profile-hint">修改成功后，下次登录请使用新密码。</p>
+          <p className="teacher-profile-hint">{'\u4fee\u6539\u6210\u529f\u540e\uff0c\u4e0b\u6b21\u767b\u5f55\u8bf7\u4f7f\u7528\u65b0\u5bc6\u7801\u3002'}</p>
           <button type="submit" className="teacher-profile-btn" disabled={submitting}>
-            {submitting ? '保存中...' : '保存新密码'}
+            {submitting ? '\u4fdd\u5b58\u4e2d...' : '\u4fdd\u5b58\u65b0\u5bc6\u7801'}
           </button>
         </form>
 
         <form className="teacher-profile-form" onSubmit={handleSaveSecurityQuestion}>
-          <label htmlFor="teacher-security-question">密保问题</label>
+          <label htmlFor="teacher-security-question">{'\u5bc6\u4fdd\u95ee\u9898'}</label>
           <input
             id="teacher-security-question"
             type="text"
             value={securityQuestion}
             onChange={(event) => setSecurityQuestion(event.target.value)}
-            placeholder="例如：我第一门授课课程名？"
+            placeholder={'\u4f8b\u5982\uff1a\u6211\u7b2c\u4e00\u95e8\u8bfe\u7a0b\u540d'}
             required
           />
 
-          <label htmlFor="teacher-security-answer">密保答案</label>
+          <label htmlFor="teacher-security-answer">{'\u5bc6\u4fdd\u7b54\u6848'}</label>
           <input
             id="teacher-security-answer"
             type="text"
             value={securityAnswer}
             onChange={(event) => setSecurityAnswer(event.target.value)}
-            placeholder="请输入密保答案"
+            placeholder={'\u8bf7\u8f93\u5165\u5bc6\u4fdd\u7b54\u6848'}
             required
           />
 
           <p className="teacher-profile-hint">
             {securityQuestionSet
-              ? '已设置密保问题，可在登录页通过密保找回密码。'
-              : '建议设置密保问题，避免忘记密码无法自助重置。'}
+              ? '\u5df2\u8bbe\u7f6e\u5bc6\u4fdd\u95ee\u9898\uff0c\u53ef\u7528\u4e8e\u627e\u56de\u8d26\u53f7\u8bbf\u95ee\u6743\u9650\u3002'
+              : '\u5efa\u8bae\u8bbe\u7f6e\u5bc6\u4fdd\u95ee\u9898\uff0c\u4fbf\u4e8e\u5fd8\u8bb0\u5bc6\u7801\u65f6\u81ea\u52a9\u627e\u56de\u3002'}
           </p>
           <button type="submit" className="teacher-profile-btn" disabled={securitySubmitting}>
-            {securitySubmitting ? '保存中...' : (securityQuestionSet ? '更新密保问题' : '保存密保问题')}
+            {securitySubmitting ? '\u4fdd\u5b58\u4e2d...' : (securityQuestionSet ? '\u66f4\u65b0\u5bc6\u4fdd\u95ee\u9898' : '\u4fdd\u5b58\u5bc6\u4fdd\u95ee\u9898')}
           </button>
         </form>
       </div>
@@ -1151,15 +2155,15 @@ function CourseEditorModal({ initialCourse, onClose, onCreate, onUpdate }) {
     try {
       if (isEdit) {
         await onUpdate(initialCourse, formData);
-        alert('课程更新成功');
+        alert('\u8bfe\u7a0b\u66f4\u65b0\u6210\u529f');
       } else {
         await onCreate(formData);
-        alert('课程创建成功');
+        alert('\u8bfe\u7a0b\u521b\u5efa\u6210\u529f');
       }
       onClose();
     } catch (error) {
       console.error('save course failed', error);
-      alert(getErrorMessage(error, isEdit ? '更新课程失败' : '创建课程失败'));
+      alert(getErrorMessage(error, isEdit ? '\u66f4\u65b0\u8bfe\u7a0b\u5931\u8d25' : '\u521b\u5efa\u8bfe\u7a0b\u5931\u8d25'));
     } finally {
       setSaving(false);
     }
@@ -1168,31 +2172,33 @@ function CourseEditorModal({ initialCourse, onClose, onCreate, onUpdate }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(event) => event.stopPropagation()}>
-        <h2>{isEdit ? '编辑课程' : '创建课程'}</h2>
+        <h2>{isEdit ? '\u7f16\u8f91\u8bfe\u7a0b' : '\u65b0\u5efa\u8bfe\u7a0b'}</h2>
         <form onSubmit={submit}>
           <div className="form-group">
-            <label htmlFor="course-name">课程名称</label>
+            <label htmlFor="course-name">{'\u8bfe\u7a0b\u540d\u79f0'}</label>
             <input
               id="course-name"
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="例如：Python程序设计"
+              placeholder={'\u8bf7\u8f93\u5165\u8bfe\u7a0b\u540d\u79f0'}
               required
             />
           </div>
           <div className="form-group">
-            <label htmlFor="course-description">课程简介（可选）</label>
+            <label htmlFor="course-description">{'\u8bfe\u7a0b\u7b80\u4ecb'}</label>
             <textarea
               id="course-description"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="请输入课程简介"
+              placeholder={'\u8bf7\u8f93\u5165\u8bfe\u7a0b\u7b80\u4ecb\uff08\u53ef\u9009\uff09'}
             />
           </div>
           <div className="form-actions">
-            <button type="button" onClick={onClose} disabled={saving}>取消</button>
-            <button type="submit" disabled={saving}>{saving ? '处理中...' : (isEdit ? '保存修改' : '创建课程')}</button>
+            <button type="button" onClick={onClose} disabled={saving}>{'\u53d6\u6d88'}</button>
+            <button type="submit" disabled={saving}>
+              {saving ? '\u4fdd\u5b58\u4e2d...' : (isEdit ? '\u4fdd\u5b58\u4fee\u6539' : '\u521b\u5efa\u8bfe\u7a0b')}
+            </button>
           </div>
         </form>
       </div>
@@ -1205,7 +2211,7 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
   const [formData, setFormData] = useState(() => ({
     title: initialExperiment?.title || '',
     description: initialExperiment?.description || '',
-    difficulty: initialExperiment?.difficulty || '初级',
+    difficulty: initialExperiment?.difficulty || '\u4e2d\u7ea7',
     tags: Array.isArray(initialExperiment?.tags) ? initialExperiment.tags.join(', ') : '',
     notebook_path: initialExperiment?.notebook_path || '',
     published: initialExperiment ? Boolean(initialExperiment?.published) : true,
@@ -1218,20 +2224,73 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
   const [studentKeyword, setStudentKeyword] = useState('');
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
+  const normalizedCourseId = String(course?.id || '').trim();
 
   useEffect(() => {
     let cancelled = false;
     const loadTargets = async () => {
-      if (!username) return;
+      if (!username || !normalizedCourseId) {
+        setTargets({ classes: [], students: [] });
+        return;
+      }
       setLoadingTargets(true);
       try {
-        const res = await axios.get(`${API_BASE_URL}/api/teacher/publish-targets`, {
-          params: { teacher_username: username },
-        });
+        const loadCourseStudents = async () => {
+          const pageSize = 100;
+          let page = 1;
+          let total = 0;
+          const students = [];
+          const seen = new Set();
+
+          do {
+            const res = await axios.get(
+              `${API_BASE_URL}/api/teacher/courses/${encodeURIComponent(normalizedCourseId)}/students`,
+              {
+                params: {
+                  teacher_username: username,
+                  page,
+                  page_size: pageSize,
+                },
+              }
+            );
+            const payload = res.data || {};
+            const items = Array.isArray(payload?.items) ? payload.items : [];
+            total = Number(payload?.total || 0);
+
+            items.forEach((item) => {
+              const studentId = String(item?.student_id || '').trim();
+              if (!studentId) return;
+              const key = studentId.toLowerCase();
+              if (seen.has(key)) return;
+              seen.add(key);
+              students.push({
+                student_id: studentId,
+                real_name: String(item?.real_name || '').trim(),
+                class_name: String(item?.class_name || '').trim(),
+              });
+            });
+
+            if (items.length === 0) break;
+            page += 1;
+          } while (students.length < total);
+
+          return students;
+        };
+
+        const [classRes, students] = await Promise.all([
+          axios.get(`${API_BASE_URL}/api/teacher/courses/${encodeURIComponent(normalizedCourseId)}/students/classes`, {
+            params: { teacher_username: username },
+          }),
+          loadCourseStudents(),
+        ]);
+
+        const classNames = normalizeStringArray(
+          (Array.isArray(classRes.data) ? classRes.data : []).map((item) => String(item?.label || item?.value || '').trim())
+        );
         if (cancelled) return;
         setTargets({
-          classes: Array.isArray(res.data?.classes) ? res.data.classes : [],
-          students: Array.isArray(res.data?.students) ? res.data.students : [],
+          classes: classNames.map((name) => ({ id: name, name })),
+          students,
         });
       } catch (error) {
         if (!cancelled) setTargets({ classes: [], students: [] });
@@ -1244,7 +2303,7 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
     return () => {
       cancelled = true;
     };
-  }, [username]);
+  }, [normalizedCourseId, username]);
 
   const classes = Array.isArray(targets?.classes) ? targets.classes : [];
   const filteredStudents = useMemo(() => {
@@ -1297,11 +2356,11 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
     if (saving) return;
 
     if (formData.published && formData.publish_scope === 'class' && formData.target_class_names.length === 0) {
-      alert('请选择至少一个班级');
+      alert('\u8bf7\u81f3\u5c11\u9009\u62e9\u4e00\u4e2a\u73ed\u7ea7');
       return;
     }
     if (formData.published && formData.publish_scope === 'student' && formData.target_student_ids.length === 0) {
-      alert('请选择至少一个学生');
+      alert('\u8bf7\u81f3\u5c11\u9009\u62e9\u4e00\u4e2a\u5b66\u751f');
       return;
     }
 
@@ -1325,16 +2384,16 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
       }
 
       if (uploadError) {
-        alert(`实验已保存，但附件上传失败：${getErrorMessage(uploadError, '请稍后重试')}`);
+        alert(`\u5b9e\u9a8c\u5df2\u4fdd\u5b58\uff0c\u4f46\u9644\u4ef6\u4e0a\u4f20\u5931\u8d25\uff1a${getErrorMessage(uploadError, '\u8bf7\u7a0d\u540e\u91cd\u8bd5')}`);
         onClose();
         return;
       }
 
-      alert(isEdit ? '实验更新成功' : '实验创建成功');
+      alert(isEdit ? '\u5b9e\u9a8c\u66f4\u65b0\u6210\u529f' : '\u5b9e\u9a8c\u521b\u5efa\u6210\u529f');
       onClose();
     } catch (error) {
       console.error('save experiment failed', error);
-      alert(getErrorMessage(error, isEdit ? '更新实验失败' : '创建实验失败'));
+      alert(getErrorMessage(error, isEdit ? '\u66f4\u65b0\u5b9e\u9a8c\u5931\u8d25' : '\u521b\u5efa\u5b9e\u9a8c\u5931\u8d25'));
     } finally {
       setSaving(false);
     }
@@ -1343,45 +2402,67 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(event) => event.stopPropagation()}>
-        <h2>{isEdit ? '编辑实验' : `添加实验 · ${course?.name || ''}`}</h2>
+        <h2>{isEdit ? '\u7f16\u8f91\u5b9e\u9a8c' : `\u65b0\u5efa\u5b9e\u9a8c\uff1a${course?.name || ''}`}</h2>
         <form onSubmit={submit}>
           <div className="form-group">
-            <label htmlFor="experiment-course-name">所属课程</label>
+            <label htmlFor="experiment-course-name">{'\u6240\u5c5e\u8bfe\u7a0b'}</label>
             <input id="experiment-course-name" type="text" value={course?.name || ''} disabled />
           </div>
           <div className="form-group">
-            <label htmlFor="experiment-title">实验名称</label>
-            <input id="experiment-title" type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
+            <label htmlFor="experiment-title">{'\u5b9e\u9a8c\u6807\u9898'}</label>
+            <input
+              id="experiment-title"
+              type="text"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              placeholder={'\u8bf7\u8f93\u5165\u5b9e\u9a8c\u6807\u9898'}
+              required
+            />
           </div>
           <div className="form-group">
-            <label htmlFor="experiment-description">实验描述</label>
-            <textarea id="experiment-description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="请输入实验目标、内容和说明" />
+            <label htmlFor="experiment-description">{'\u5b9e\u9a8c\u63cf\u8ff0'}</label>
+            <textarea
+              id="experiment-description"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder={'\u8bf7\u8f93\u5165\u5b9e\u9a8c\u63cf\u8ff0'}
+            />
           </div>
           <div className="form-group">
-            <label htmlFor="experiment-difficulty">难度</label>
-            <select id="experiment-difficulty" value={formData.difficulty} onChange={(e) => setFormData({ ...formData, difficulty: e.target.value })}>
-              <option value="初级">初级</option>
-              <option value="中级">中级</option>
-              <option value="高级">高级</option>
+            <label htmlFor="experiment-difficulty">{'\u96be\u5ea6'}</label>
+            <select
+              id="experiment-difficulty"
+              value={formData.difficulty}
+              onChange={(e) => setFormData({ ...formData, difficulty: e.target.value })}
+            >
+              <option value={'\u521d\u7ea7'}>{'\u521d\u7ea7'}</option>
+              <option value={'\u4e2d\u7ea7'}>{'\u4e2d\u7ea7'}</option>
+              <option value={'\u9ad8\u7ea7'}>{'\u9ad8\u7ea7'}</option>
             </select>
           </div>
           <div className="form-group">
-            <label htmlFor="experiment-tags">标签（逗号分隔）</label>
-            <input id="experiment-tags" type="text" value={formData.tags} onChange={(e) => setFormData({ ...formData, tags: e.target.value })} placeholder="Python, 数据分析, 机器学习" />
+            <label htmlFor="experiment-tags">{'\u6807\u7b7e\uff08\u9017\u53f7\u5206\u9694\uff09'}</label>
+            <input
+              id="experiment-tags"
+              type="text"
+              value={formData.tags}
+              onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+              placeholder={'\u4f8b\u5982\uff1aPython\uff0c\u5faa\u73af\uff0c\u5217\u8868'}
+            />
           </div>
           <div className="form-group">
-            <label htmlFor="experiment-notebook">Notebook 路径</label>
+            <label htmlFor="experiment-notebook">{'Notebook \u8def\u5f84'}</label>
             <input id="experiment-notebook" type="text" value={formData.notebook_path} onChange={(e) => setFormData({ ...formData, notebook_path: e.target.value })} placeholder="course/example.ipynb" />
           </div>
           <div className="form-group">
-            <label htmlFor="experiment-attachments">附件上传（可选，可多选）</label>
+            <label htmlFor="experiment-attachments">{'\u4e0a\u4f20\u9644\u4ef6\uff08\u53ef\u591a\u9009\uff09'}</label>
             <input id="experiment-attachments" type="file" multiple onChange={onFileChange} />
             {files.length > 0 ? (
               <ul className="teacher-lab-upload-list">
                 {files.map((file, index) => (
                   <li key={`${file.name}-${file.size}`}>
                     <span>{file.name}</span>
-                    <button type="button" onClick={() => removeFile(index)}>移除</button>
+                    <button type="button" onClick={() => removeFile(index)}>{'\u5220\u9664'}</button>
                   </li>
                 ))}
               </ul>
@@ -1391,30 +2472,30 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
           <div className="form-group checkbox">
             <label htmlFor="experiment-published">
               <input id="experiment-published" type="checkbox" checked={formData.published} onChange={(e) => setFormData({ ...formData, published: e.target.checked })} />
-              保存后立即发布
+              {'\u7acb\u5373\u53d1\u5e03\u7ed9\u5b66\u751f'}
             </label>
           </div>
 
           {formData.published ? (
             <>
               <div className="form-group">
-                <label>发布范围</label>
+                <label>{'\u53d1\u5e03\u8303\u56f4'}</label>
                 <div className="publish-scope-row">
-                  <label><input type="radio" name="edit-publish-scope" checked={formData.publish_scope === 'all'} onChange={() => setFormData({ ...formData, publish_scope: 'all', target_class_names: [], target_student_ids: [] })} /> 全部学生</label>
-                  <label><input type="radio" name="edit-publish-scope" checked={formData.publish_scope === 'class'} onChange={() => setFormData({ ...formData, publish_scope: 'class', target_student_ids: [] })} /> 指定班级</label>
-                  <label><input type="radio" name="edit-publish-scope" checked={formData.publish_scope === 'student'} onChange={() => setFormData({ ...formData, publish_scope: 'student', target_class_names: [] })} /> 指定学生</label>
+                  <label><input type="radio" name="edit-publish-scope" checked={formData.publish_scope === 'all'} onChange={() => setFormData({ ...formData, publish_scope: 'all', target_class_names: [], target_student_ids: [] })} /> {'\u5168\u90e8\u5b66\u751f'}</label>
+                  <label><input type="radio" name="edit-publish-scope" checked={formData.publish_scope === 'class'} onChange={() => setFormData({ ...formData, publish_scope: 'class', target_student_ids: [] })} /> {'\u6307\u5b9a\u73ed\u7ea7'}</label>
+                  <label><input type="radio" name="edit-publish-scope" checked={formData.publish_scope === 'student'} onChange={() => setFormData({ ...formData, publish_scope: 'student', target_class_names: [] })} /> {'\u6307\u5b9a\u5b66\u751f'}</label>
                 </div>
               </div>
 
               {formData.publish_scope === 'class' ? (
                 <div className="form-group">
-                  <label>{`选择班级（已选 ${formData.target_class_names.length}）`}</label>
+                  <label>{`\u9009\u62e9\u73ed\u7ea7\uff08\u5df2\u9009 ${formData.target_class_names.length}\uff09`}</label>
                   {loadingTargets ? (
-                    <div className="publish-target-loading">正在加载班级列表...</div>
+                    <div className="publish-target-loading">{'\u6b63\u5728\u52a0\u8f7d\u53ef\u9009\u73ed\u7ea7...'}</div>
                   ) : (
                     <div className="publish-target-list">
                       {classes.length === 0 ? (
-                        <div className="publish-target-empty">暂无可选班级</div>
+                        <div className="publish-target-empty">{'\u6682\u65e0\u53ef\u9009\u73ed\u7ea7'}</div>
                       ) : (
                         classes.map((item) => {
                           const name = String(item?.name || '').trim();
@@ -1433,19 +2514,19 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
 
               {formData.publish_scope === 'student' ? (
                 <div className="form-group">
-                  <label>{`选择学生（已选 ${formData.target_student_ids.length}）`}</label>
+                  <label>{`\u9009\u62e9\u5b66\u751f\uff08\u5df2\u9009 ${formData.target_student_ids.length}\uff09`}</label>
                   <input
                     type="text"
                     value={studentKeyword}
                     onChange={(event) => setStudentKeyword(event.target.value)}
-                    placeholder="按学号/姓名/班级搜索"
+                    placeholder={'\u8bf7\u8f93\u5165\u5b66\u53f7/\u59d3\u540d/\u73ed\u7ea7\u5173\u952e\u5b57'}
                   />
                   {loadingTargets ? (
-                    <div className="publish-target-loading">正在加载学生列表...</div>
+                    <div className="publish-target-loading">{'\u6b63\u5728\u52a0\u8f7d\u53ef\u9009\u5b66\u751f...'}</div>
                   ) : (
                     <div className="publish-target-list">
                       {filteredStudents.length === 0 ? (
-                        <div className="publish-target-empty">暂无匹配学生</div>
+                        <div className="publish-target-empty">{'\u6682\u65e0\u53ef\u9009\u5b66\u751f'}</div>
                       ) : (
                         filteredStudents.map((item) => {
                           const studentId = String(item?.student_id || '').trim();
@@ -1454,7 +2535,7 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
                           return (
                             <label key={studentId}>
                               <input type="checkbox" checked={formData.target_student_ids.includes(studentId)} onChange={() => toggleStudent(studentId)} />
-                              <span>{`${studentId}${realName ? ` 路 ${realName}` : ''}${className ? ` 路 ${className}` : ''}`}</span>
+                              <span>{`${studentId}${realName ? ` \u00b7 ${realName}` : ''}${className ? ` \u00b7 ${className}` : ''}`}</span>
                             </label>
                           );
                         })
@@ -1467,8 +2548,8 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
           ) : null}
 
           <div className="form-actions">
-            <button type="button" onClick={onClose} disabled={saving}>取消</button>
-            <button type="submit" disabled={saving}>{saving ? '处理中...' : (isEdit ? '保存修改' : '创建实验')}</button>
+            <button type="button" onClick={onClose} disabled={saving}>{'\u53d6\u6d88'}</button>
+            <button type="submit" disabled={saving}>{saving ? '\u4fdd\u5b58\u4e2d...' : (isEdit ? '\u4fdd\u5b58\u4fee\u6539' : '\u521b\u5efa\u5b9e\u9a8c')}</button>
           </div>
         </form>
       </div>
@@ -1481,43 +2562,6 @@ function CourseTabIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3.5" y="4" width="17" height="16" rx="2.5" />
       <path d="M8 9h8M8 13h8M8 17h5" />
-    </svg>
-  );
-}
-
-function ProgressTabIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 18V8m6 10V5m6 13v-6m6 6V3" />
-    </svg>
-  );
-}
-
-function ReviewTabIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 5h16v14H4z" />
-      <path d="M8 9h8M8 13h5" />
-      <path d="m14 16 2 2 4-4" />
-    </svg>
-  );
-}
-
-function UserTabIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="9" cy="8" r="3" />
-      <path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
-      <path d="M17 10h4M19 8v4" />
-    </svg>
-  );
-}
-
-function ResourceTabIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 4h12l2 3v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
-      <path d="M8 12h8M8 16h8M8 8h5" />
     </svg>
   );
 }
@@ -1554,4 +2598,8 @@ function AdminControlTabIcon() {
 }
 
 export default TeacherDashboard;
+
+
+
+
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import axios from 'axios';
 import TeacherDashboard from './TeacherDashboard';
+import OfferingDetail from './OfferingDetail';
 import StudentCourseList from './StudentCourseList';
 import ExperimentWorkspace from './ExperimentWorkspace';
 import FloatingAIAssistant from './FloatingAIAssistant';
@@ -217,6 +218,16 @@ function App() {
                 <Route
                     path="/workspace/:experimentId"
                     element={isLoggedIn ? <ExperimentWorkspace /> : <Navigate to="/login" replace />}
+                />
+                <Route
+                    path="/teacher/offering/:offeringId"
+                    element={
+                        isLoggedIn && (userRole === 'teacher' || userRole === 'admin') ? (
+                            <OfferingDetail username={username} userRole={userRole} onLogout={handleLogout} />
+                        ) : (
+                            <Navigate to="/login" replace />
+                        )
+                    }
                 />
                 <Route
                     path="/"

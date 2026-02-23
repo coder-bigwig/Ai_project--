@@ -63,3 +63,4 @@ class ExperimentORM(Base, TimestampVersionMixin):
         default=json_dict,
         server_default=text("'{}'::jsonb"),
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)

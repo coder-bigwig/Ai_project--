@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import os
+import io
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import HTTPException
+from fastapi import File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import DEFAULT_ADMISSION_YEAR_OPTIONS, DEFAULT_PASSWORD
 from ..repositories import (
     AttachmentRepository,
     AuthUserRepository,
+    CourseMemberRepository,
+    CourseOfferingRepository,
+    CourseStudentMembershipRepository,
     CourseRepository,
     ExperimentRepository,
     PasswordHashRepository,
@@ -18,11 +24,12 @@ from ..repositories import (
     StudentExperimentRepository,
     UserRepository,
 )
-from .identity_service import ensure_teacher_or_admin, normalize_text
+from .identity_service import ensure_teacher_or_admin, normalize_text, resolve_user_role
 from .operation_log_service import append_operation_log
 
 
 class TeacherService:
+
     def __init__(self, main_module, db: Optional[AsyncSession] = None):
         if db is None:
             raise HTTPException(status_code=503, detail="PostgreSQL session unavailable")
@@ -192,20 +199,44 @@ class TeacherService:
 
     async def get_teacher_courses(self, teacher_username: str):
         normalized_teacher, _ = await self._ensure_teacher(teacher_username)
-        course_rows = await CourseRepository(self.db).list_by_creator(normalized_teacher)
+        course_repo = CourseRepository(self.db)
+        course_rows = await course_repo.list_by_creator(normalized_teacher)
+
+        # Include courses where this teacher is an active teacher/ta member in any non-archived offering.
+        member_rows = await CourseMemberRepository(self.db).list_by_user(normalized_teacher)
+        active_member_rows = [
+            item
+            for item in member_rows
+            if normalize_text(item.role).lower() in {"teacher", "ta"}
+            and normalize_text(item.status).lower() == "active"
+        ]
+        offering_ids = [item.offering_id for item in active_member_rows if item.offering_id]
+        if offering_ids:
+            offering_rows = await CourseOfferingRepository(self.db).list_by_ids(offering_ids)
+            merged_course_rows = {normalize_text(item.id): item for item in course_rows}
+            for offering in offering_rows:
+                if normalize_text(offering.status).lower() == "archived":
+                    continue
+                course_id = normalize_text(offering.template_course_id)
+                if not course_id or course_id in merged_course_rows:
+                    continue
+                course_row = await course_repo.get(course_id)
+                if course_row is not None:
+                    merged_course_rows[course_id] = course_row
+            course_rows = list(merged_course_rows.values())
+
         experiment_rows = await ExperimentRepository(self.db).list_all()
         experiments = [self._to_experiment_model(item) for item in experiment_rows]
 
         payload = []
         for row in course_rows:
             course = self._to_course_record(row)
-            owned = [
+            related = [
                 item
                 for item in experiments
-                if normalize_text(item.created_by) == normalized_teacher
-                and normalize_text(item.course_id) == normalize_text(course.id)
+                if normalize_text(item.course_id) == normalize_text(course.id)
             ]
-            payload.append(self._course_payload(course, owned))
+            payload.append(self._course_payload(course, related))
         payload.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or datetime.min, reverse=True)
         return payload
 
@@ -259,6 +290,427 @@ class TeacherService:
             ],
         }
 
+    @staticmethod
+    def _admission_year(value) -> str:
+        raw = normalize_text(value)
+        if not raw:
+            return ""
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if len(digits) == 4 and digits.startswith("20"):
+            return digits
+        if len(digits) == 2:
+            return f"20{digits}"
+        return ""
+
+    @staticmethod
+    def _infer_admission_year(student_id: str) -> str:
+        normalized = normalize_text(student_id)
+        if len(normalized) >= 2 and normalized[:2].isdigit():
+            return f"20{normalized[:2]}"
+        return ""
+
+    @classmethod
+    def _format_admission_year_label(cls, admission_year: str) -> str:
+        normalized = cls._admission_year(admission_year)
+        return f"{normalized}级" if normalized else ""
+
+    async def _ensure_course_manager(self, course_id: str, teacher_username: str):
+        normalized_teacher, role = await self._ensure_teacher(teacher_username)
+        normalized_course_id = normalize_text(course_id)
+        if not normalized_course_id:
+            raise HTTPException(status_code=400, detail="course_id is required")
+
+        course = await CourseRepository(self.db).get(normalized_course_id)
+        if course is None:
+            raise HTTPException(status_code=404, detail="course not found")
+
+        if role == "admin" or normalize_text(course.created_by) == normalized_teacher:
+            return normalized_teacher, role, course
+
+        # Collaborative teachers/TAs can manage a course if they are active members
+        # of any active offering under this template course.
+        member_rows = await CourseMemberRepository(self.db).list_by_user(normalized_teacher)
+        active_member_rows = [
+            item
+            for item in member_rows
+            if normalize_text(item.role).lower() in {"teacher", "ta"}
+            and normalize_text(item.status).lower() == "active"
+        ]
+        offering_ids = [item.offering_id for item in active_member_rows if item.offering_id]
+        if offering_ids:
+            offering_rows = await CourseOfferingRepository(self.db).list_by_ids(offering_ids)
+            has_course_access = any(
+                normalize_text(item.template_course_id) == normalized_course_id
+                and normalize_text(item.status).lower() != "archived"
+                for item in offering_rows
+            )
+            if has_course_access:
+                return normalized_teacher, role, course
+
+        raise HTTPException(status_code=403, detail="permission denied for this course")
+
+    async def _course_student_pairs(self, course_id: str):
+        membership_repo = CourseStudentMembershipRepository(self.db)
+        memberships = await membership_repo.list_by_course(course_id)
+        if not memberships:
+            return []
+
+        student_rows = await UserRepository(self.db).list_by_role("student")
+        by_student_id = {}
+        by_username = {}
+        for row in student_rows:
+            student_id = normalize_text(row.student_id or row.username)
+            username = normalize_text(row.username)
+            if student_id:
+                by_student_id[student_id] = row
+            if username:
+                by_username[username] = row
+
+        pairs = []
+        for membership in memberships:
+            key = normalize_text(membership.student_id)
+            student = by_student_id.get(key) or by_username.get(key)
+            if student is None:
+                continue
+            canonical_student_id = normalize_text(student.student_id or student.username)
+            if canonical_student_id and membership.student_id != canonical_student_id:
+                membership.student_id = canonical_student_id
+            pairs.append((membership, student))
+        return pairs
+
+    async def list_course_students(
+        self,
+        course_id: str,
+        teacher_username: str,
+        keyword: str = "",
+        class_name: str = "",
+        admission_year: str = "",
+        page: int = 1,
+        page_size: int = 20,
+    ):
+        await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+        page = max(page, 1)
+        page_size = max(1, min(page_size, 100))
+
+        normalized_keyword = normalize_text(keyword).lower()
+        normalized_class_name = normalize_text(class_name)
+        normalized_admission_year = self._admission_year(admission_year)
+
+        rows = []
+        for membership, student in await self._course_student_pairs(course_id):
+            student_id = normalize_text(student.student_id or student.username)
+            real_name = normalize_text(student.real_name)
+            row_class_name = normalize_text(student.class_name)
+            row_admission_year = self._admission_year(student.admission_year)
+            if normalized_keyword and normalized_keyword not in student_id.lower() and normalized_keyword not in real_name.lower():
+                continue
+            if normalized_class_name and row_class_name != normalized_class_name:
+                continue
+            if normalized_admission_year and row_admission_year != normalized_admission_year:
+                continue
+            rows.append(
+                {
+                    "student_id": student_id,
+                    "username": normalize_text(student.username) or student_id,
+                    "real_name": real_name or student_id,
+                    "class_name": row_class_name,
+                    "admission_year": row_admission_year,
+                    "admission_year_label": self._format_admission_year_label(row_admission_year),
+                    "organization": normalize_text(student.organization),
+                    "phone": normalize_text(student.phone),
+                    "role": "student",
+                    "created_at": student.created_at,
+                    "updated_at": student.updated_at,
+                    "joined_at": membership.created_at,
+                }
+            )
+
+        rows.sort(
+            key=lambda item: item.get("joined_at") or item.get("updated_at") or item.get("created_at") or datetime.min,
+            reverse=True,
+        )
+        total = len(rows)
+        start = (page - 1) * page_size
+        end = start + page_size
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "items": rows[start:end],
+        }
+
+    async def list_course_student_class_options(self, course_id: str, teacher_username: str):
+        await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+        class_names = {
+            normalize_text(student.class_name)
+            for _, student in await self._course_student_pairs(course_id)
+            if normalize_text(student.class_name)
+        }
+        return [{"value": name, "label": name} for name in sorted(class_names)]
+
+    async def list_course_student_admission_year_options(self, course_id: str, teacher_username: str):
+        await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+        year_set = set(DEFAULT_ADMISSION_YEAR_OPTIONS)
+        for _, student in await self._course_student_pairs(course_id):
+            year = self._admission_year(student.admission_year)
+            if year:
+                year_set.add(year)
+        return [{"value": year, "label": f"{year}级"} for year in sorted(year_set)]
+
+    async def download_course_student_template(self, course_id: str, teacher_username: str, format: str = "xlsx"):
+        await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+        template_format = normalize_text(format).lower()
+        if template_format == "csv":
+            payload = self.main._build_csv_template()
+            return StreamingResponse(
+                io.BytesIO(payload),
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": "attachment; filename=student_import_template.csv"},
+            )
+        if template_format == "xlsx":
+            payload = self.main._build_xlsx_template()
+            return StreamingResponse(
+                io.BytesIO(payload),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": "attachment; filename=student_import_template.xlsx"},
+            )
+        raise HTTPException(status_code=400, detail="format must be xlsx or csv")
+
+    async def import_course_students(
+        self,
+        course_id: str,
+        teacher_username: str,
+        file: UploadFile = File(...),
+    ):
+        normalized_teacher, _, course = await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="file name is required")
+
+        file_content = await file.read()
+        parsed_rows = self.main._parse_student_import_rows(file.filename, file_content)
+
+        user_repo = UserRepository(self.db)
+        auth_repo = AuthUserRepository(self.db)
+        membership_repo = CourseStudentMembershipRepository(self.db)
+
+        now = datetime.now()
+        seen_in_file = set()
+        success_count = 0
+        created_count = 0
+        skipped_count = 0
+        failed_count = 0
+        errors = []
+
+        default_hash = self.main._hash_password(DEFAULT_PASSWORD)
+
+        for row_number, row in parsed_rows:
+            student_id, real_name, class_name, organization, phone, admission_year_raw = row
+            student_id = normalize_text(student_id)
+            real_name = normalize_text(real_name)
+            class_name = normalize_text(class_name)
+            organization = normalize_text(organization)
+            phone = normalize_text(phone)
+            admission_year = self._admission_year(admission_year_raw) or self._infer_admission_year(student_id)
+
+            if not all([student_id, real_name, class_name, organization, phone]):
+                failed_count += 1
+                errors.append({"row": row_number, "student_id": student_id, "reason": "required fields are missing"})
+                continue
+            if not admission_year:
+                failed_count += 1
+                errors.append({"row": row_number, "student_id": student_id, "reason": "invalid admission year"})
+                continue
+            if student_id in seen_in_file:
+                skipped_count += 1
+                errors.append({"row": row_number, "student_id": student_id, "reason": "duplicate student id in file"})
+                continue
+            seen_in_file.add(student_id)
+
+            role_value = await resolve_user_role(self.db, student_id)
+            if role_value in {"teacher", "admin"}:
+                failed_count += 1
+                errors.append({"row": row_number, "student_id": student_id, "reason": "student id conflicts with teacher/admin"})
+                continue
+
+            student_row = await user_repo.get_student_by_student_id(student_id)
+            if student_row is None:
+                conflict_row = await user_repo.get_by_username(student_id)
+                if conflict_row is not None:
+                    if normalize_text(conflict_row.role).lower() != "student":
+                        failed_count += 1
+                        errors.append({"row": row_number, "student_id": student_id, "reason": "student id conflicts with existing username"})
+                        continue
+                    student_row = conflict_row
+                    if not normalize_text(student_row.student_id):
+                        student_row.student_id = student_id
+                else:
+                    student_row = await user_repo.upsert(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "username": student_id,
+                            "role": "student",
+                            "real_name": real_name,
+                            "student_id": student_id,
+                            "class_name": class_name,
+                            "admission_year": admission_year,
+                            "organization": organization,
+                            "phone": phone,
+                            "password_hash": default_hash,
+                            "security_question": "",
+                            "security_answer_hash": "",
+                            "created_by": normalized_teacher,
+                            "is_active": True,
+                            "created_at": now,
+                            "updated_at": now,
+                            "extra": {},
+                        }
+                    )
+                    await auth_repo.upsert_by_email(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "email": student_id,
+                            "username": student_id,
+                            "role": "student",
+                            "password_hash": default_hash,
+                            "is_active": True,
+                            "created_at": now,
+                            "updated_at": now,
+                        }
+                    )
+                    created_count += 1
+
+            canonical_student_id = normalize_text(student_row.student_id or student_row.username or student_id)
+            existing_membership = await membership_repo.get_by_course_and_student(course.id, canonical_student_id)
+            if existing_membership is not None:
+                skipped_count += 1
+                errors.append({"row": row_number, "student_id": canonical_student_id, "reason": "already enrolled in this course"})
+                continue
+
+            await membership_repo.create(
+                {
+                    "id": str(uuid.uuid4()),
+                    "course_id": course.id,
+                    "student_id": canonical_student_id,
+                    "added_by": normalized_teacher,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            success_count += 1
+
+        await append_operation_log(
+            self.db,
+            operator=normalized_teacher,
+            action="courses.students.import",
+            target=course.id,
+            detail=f"success={success_count}, created={created_count}, skipped={skipped_count}, failed={failed_count}",
+        )
+        await self._commit()
+        return {
+            "total_rows": len(parsed_rows),
+            "success_count": success_count,
+            "created_count": created_count,
+            "skipped_count": skipped_count,
+            "failed_count": failed_count,
+            "errors": errors,
+        }
+
+    async def reset_course_student_password(self, course_id: str, student_id: str, teacher_username: str):
+        normalized_teacher, _, course = await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+        normalized_student_id = normalize_text(student_id)
+        if not normalized_student_id:
+            raise HTTPException(status_code=400, detail="student_id is required")
+
+        membership_repo = CourseStudentMembershipRepository(self.db)
+        membership = await membership_repo.get_by_course_and_student(course.id, normalized_student_id)
+        student = await UserRepository(self.db).get_student_by_student_id(normalized_student_id)
+        if student is None:
+            student = await UserRepository(self.db).get_by_username(normalized_student_id)
+        if student is not None:
+            canonical_student_id = normalize_text(student.student_id or student.username)
+            if membership is None and canonical_student_id:
+                membership = await membership_repo.get_by_course_and_student(course.id, canonical_student_id)
+                normalized_student_id = canonical_student_id
+
+        if membership is None:
+            raise HTTPException(status_code=404, detail="student is not enrolled in this course")
+        if student is None or normalize_text(student.role).lower() != "student":
+            raise HTTPException(status_code=404, detail="student account not found")
+
+        new_hash = self.main._hash_password(DEFAULT_PASSWORD)
+        student.password_hash = new_hash
+        student.updated_at = datetime.now()
+
+        auth_user = await AuthUserRepository(self.db).get_by_login_identifier(student.username or normalized_student_id)
+        if auth_user is not None:
+            auth_user.password_hash = new_hash
+            auth_user.updated_at = datetime.now()
+
+        await append_operation_log(
+            self.db,
+            operator=normalized_teacher,
+            action="courses.students.reset_password",
+            target=f"{course.id}:{normalized_student_id}",
+            detail="password reset to default",
+        )
+        await self._commit()
+        return {"message": "password reset", "student_id": normalized_student_id}
+
+    async def remove_course_student(self, course_id: str, student_id: str, teacher_username: str):
+        normalized_teacher, _, course = await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+        normalized_student_id = normalize_text(student_id)
+        if not normalized_student_id:
+            raise HTTPException(status_code=400, detail="student_id is required")
+
+        membership_repo = CourseStudentMembershipRepository(self.db)
+        deleted = await membership_repo.delete_by_course_and_student(course.id, normalized_student_id)
+        if deleted == 0:
+            student = await UserRepository(self.db).get_by_username(normalized_student_id)
+            if student is not None:
+                canonical_student_id = normalize_text(student.student_id or student.username)
+                if canonical_student_id and canonical_student_id != normalized_student_id:
+                    deleted = await membership_repo.delete_by_course_and_student(course.id, canonical_student_id)
+                    normalized_student_id = canonical_student_id
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="student is not enrolled in this course")
+
+        await append_operation_log(
+            self.db,
+            operator=normalized_teacher,
+            action="courses.students.remove",
+            target=f"{course.id}:{normalized_student_id}",
+        )
+        await self._commit()
+        return {"message": "removed from course", "student_id": normalized_student_id}
+
+    async def batch_remove_course_students(self, course_id: str, teacher_username: str, class_name: str = ""):
+        normalized_teacher, _, course = await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+        normalized_class_name = normalize_text(class_name)
+        if not normalized_class_name:
+            raise HTTPException(status_code=400, detail="class_name is required")
+
+        target_student_ids = []
+        for _, student in await self._course_student_pairs(course.id):
+            if normalize_text(student.class_name) == normalized_class_name:
+                target_student_ids.append(normalize_text(student.student_id or student.username))
+
+        deleted = await CourseStudentMembershipRepository(self.db).delete_by_course_and_students(course.id, target_student_ids)
+        await append_operation_log(
+            self.db,
+            operator=normalized_teacher,
+            action="courses.students.batch_remove",
+            target=course.id,
+            detail=f"class_name={normalized_class_name}, deleted={deleted}",
+        )
+        await self._commit()
+        return {
+            "message": "batch remove completed",
+            "course_id": course.id,
+            "class_name": normalized_class_name,
+            "deleted_count": int(deleted or 0),
+            "deleted_student_ids": target_student_ids,
+        }
+
     async def create_teacher_course(self, payload):
         normalized_teacher, _ = await self._ensure_teacher(payload.teacher_username)
         course_name = normalize_text(payload.name)
@@ -266,8 +718,6 @@ class TeacherService:
             raise HTTPException(status_code=400, detail="课程名称不能为空")
 
         repo = CourseRepository(self.db)
-        if await repo.find_by_teacher_and_name(normalized_teacher, course_name):
-            raise HTTPException(status_code=409, detail="课程名称已存在")
 
         now = datetime.now()
         row = await repo.create(

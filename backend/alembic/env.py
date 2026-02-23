@@ -33,6 +33,7 @@ db_url = _to_sync_driver_url(os.getenv("DATABASE_URL", DATABASE_URL))
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
 
+version_table_schema = (os.getenv("POSTGRES_SCHEMA") or "experiment_manager").strip() or "experiment_manager"
 target_metadata = Base.metadata
 
 
@@ -44,6 +45,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         compare_type=True,
         include_schemas=True,
+        version_table_schema=version_table_schema,
     )
 
     with context.begin_transaction():
@@ -63,6 +65,7 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             compare_type=True,
             include_schemas=True,
+            version_table_schema=version_table_schema,
         )
 
         with context.begin_transaction():

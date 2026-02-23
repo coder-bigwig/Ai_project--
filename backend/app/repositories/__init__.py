@@ -1,4 +1,7 @@
 from .attachments import AttachmentRepository
+from .course_members import CourseMemberRepository
+from .course_offerings import CourseOfferingRepository
+from .course_student_memberships import CourseStudentMembershipRepository
 from .courses import CourseRepository
 from .kv_store import KVStoreRepository
 from .operation_logs import OperationLogRepository
@@ -15,6 +18,9 @@ from .users import UserRepository
 __all__ = [
     "AttachmentRepository",
     "AuthUserRepository",
+    "CourseMemberRepository",
+    "CourseOfferingRepository",
+    "CourseStudentMembershipRepository",
     "CourseRepository",
     "ExperimentRepository",
     "KVStoreRepository",

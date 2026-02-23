@@ -20,6 +20,6 @@ COPY app/ /app/app/
 COPY init_db.py /app/init_db.py
 COPY alembic.ini /app/alembic.ini
 COPY alembic/ /app/alembic/
-COPY scripts/ /app/scripts/
+COPY app/scripts/ /app/app/scripts/
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

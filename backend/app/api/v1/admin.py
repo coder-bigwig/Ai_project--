@@ -126,34 +126,93 @@ async def cleanup_admin_operation_logs(admin_username: str, keep_recent: int = 2
 async def upload_resource_file(
     teacher_username: str,
     file: UploadFile = File(...),
+    course_id: Optional[str] = None,
+    offering_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    return await _service(db).upload_resource_file(teacher_username=teacher_username, file=file)
+    return await _service(db).upload_resource_file(
+        teacher_username=teacher_username,
+        file=file,
+        course_id=course_id,
+        offering_id=offering_id,
+    )
 
 
 async def list_resource_files(
     teacher_username: str,
     name: Optional[str] = None,
     file_type: Optional[str] = None,
+    course_id: Optional[str] = None,
+    offering_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    return await _service(db).list_resource_files(teacher_username=teacher_username, name=name, file_type=file_type)
+    return await _service(db).list_resource_files(
+        teacher_username=teacher_username,
+        name=name,
+        file_type=file_type,
+        course_id=course_id,
+        offering_id=offering_id,
+    )
 
 
-async def get_resource_file_detail(resource_id: str, teacher_username: str, db: AsyncSession = Depends(get_db)):
-    return await _service(db).get_resource_file_detail(resource_id=resource_id, teacher_username=teacher_username)
+async def get_resource_file_detail(
+    resource_id: str,
+    teacher_username: str,
+    course_id: Optional[str] = None,
+    offering_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _service(db).get_resource_file_detail(
+        resource_id=resource_id,
+        teacher_username=teacher_username,
+        course_id=course_id,
+        offering_id=offering_id,
+    )
 
 
-async def delete_resource_file(resource_id: str, teacher_username: str, db: AsyncSession = Depends(get_db)):
-    return await _service(db).delete_resource_file(resource_id=resource_id, teacher_username=teacher_username)
+async def delete_resource_file(
+    resource_id: str,
+    teacher_username: str,
+    course_id: Optional[str] = None,
+    offering_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _service(db).delete_resource_file(
+        resource_id=resource_id,
+        teacher_username=teacher_username,
+        course_id=course_id,
+        offering_id=offering_id,
+    )
 
 
-async def preview_resource_file(resource_id: str, teacher_username: str, db: AsyncSession = Depends(get_db)):
-    return await _service(db).preview_resource_file(resource_id=resource_id, teacher_username=teacher_username)
+async def preview_resource_file(
+    resource_id: str,
+    teacher_username: str,
+    course_id: Optional[str] = None,
+    offering_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _service(db).preview_resource_file(
+        resource_id=resource_id,
+        teacher_username=teacher_username,
+        course_id=course_id,
+        offering_id=offering_id,
+    )
 
 
-async def download_resource_file(resource_id: str, teacher_username: str, db: AsyncSession = Depends(get_db)):
-    return await _service(db).download_resource_file(resource_id=resource_id, teacher_username=teacher_username)
+async def download_resource_file(
+    resource_id: str,
+    teacher_username: str,
+    course_id: Optional[str] = None,
+    offering_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _service(db).download_resource_file(
+        resource_id=resource_id,
+        teacher_username=teacher_username,
+        course_id=course_id,
+        offering_id=offering_id,
+    )
 
 
 router.add_api_route("/api/admin/teachers", list_admin_teachers, methods=["GET"])
@@ -183,4 +242,3 @@ router.add_api_route("/api/admin/resources/{resource_id}", get_resource_file_det
 router.add_api_route("/api/admin/resources/{resource_id}", delete_resource_file, methods=["DELETE"])
 router.add_api_route("/api/admin/resources/{resource_id}/preview", preview_resource_file, methods=["GET"])
 router.add_api_route("/api/admin/resources/{resource_id}/download", download_resource_file, methods=["GET"])
-

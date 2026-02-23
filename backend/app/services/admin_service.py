@@ -22,6 +22,7 @@ from ..config import (
 )
 from ..repositories import (
     AuthUserRepository,
+    CourseOfferingRepository,
     OperationLogRepository,
     PasswordHashRepository,
     ResourceRepository,
@@ -40,6 +41,8 @@ from .kv_policy_service import (
     upsert_kv_json,
 )
 from .operation_log_service import append_operation_log
+
+RESOURCE_SCOPE_BINDINGS_KV_KEY = "resource_scope_bindings_v1"
 
 
 class AdminService:
@@ -108,9 +111,66 @@ class AdminService:
             return "docx"
         return "unsupported"
 
-    def _resource_payload(self, row, route_prefix: str = "/api/admin/resources") -> dict:
+    @staticmethod
+    def _normalize_resource_scope(course_id: Optional[str] = None, offering_id: Optional[str] = None) -> dict[str, str]:
+        return {
+            "course_id": normalize_text(course_id),
+            "offering_id": normalize_text(offering_id),
+        }
+
+    @staticmethod
+    def _has_resource_scope(scope: dict[str, str]) -> bool:
+        return bool(scope.get("course_id") or scope.get("offering_id"))
+
+    @classmethod
+    def _resource_scope_or_empty(cls, scope: Optional[dict]) -> dict[str, str]:
+        if not isinstance(scope, dict):
+            return cls._normalize_resource_scope()
+        return cls._normalize_resource_scope(scope.get("course_id"), scope.get("offering_id"))
+
+    @classmethod
+    def _resource_scope_matches(cls, scope: Optional[dict], scope_filter: dict[str, str]) -> bool:
+        if not cls._has_resource_scope(scope_filter):
+            return True
+        normalized_scope = cls._resource_scope_or_empty(scope)
+        return (
+            normalized_scope["course_id"] == scope_filter["course_id"]
+            and normalized_scope["offering_id"] == scope_filter["offering_id"]
+        )
+
+    async def _load_resource_scope_bindings(self) -> dict[str, dict[str, str]]:
+        payload = await get_kv_json(self.db, RESOURCE_SCOPE_BINDINGS_KV_KEY, {"resources": {}})
+        raw_bindings = payload.get("resources", {}) if isinstance(payload, dict) else {}
+        if not isinstance(raw_bindings, dict):
+            return {}
+
+        bindings: dict[str, dict[str, str]] = {}
+        for resource_id, scope in raw_bindings.items():
+            normalized_id = normalize_text(resource_id)
+            if not normalized_id:
+                continue
+            normalized_scope = self._resource_scope_or_empty(scope)
+            if not self._has_resource_scope(normalized_scope):
+                continue
+            bindings[normalized_id] = normalized_scope
+        return bindings
+
+    async def _save_resource_scope_bindings(self, bindings: dict[str, dict[str, str]]) -> None:
+        resources: dict[str, dict[str, str]] = {}
+        for resource_id, scope in (bindings or {}).items():
+            normalized_id = normalize_text(resource_id)
+            if not normalized_id:
+                continue
+            normalized_scope = self._resource_scope_or_empty(scope)
+            if not self._has_resource_scope(normalized_scope):
+                continue
+            resources[normalized_id] = normalized_scope
+        await upsert_kv_json(self.db, RESOURCE_SCOPE_BINDINGS_KV_KEY, {"resources": resources})
+
+    def _resource_payload(self, row, route_prefix: str = "/api/admin/resources", scope: Optional[dict] = None) -> dict:
         normalized_prefix = route_prefix.rstrip("/")
         preview_mode = self._resource_preview_mode(row.file_type)
+        normalized_scope = self._resource_scope_or_empty(scope)
         return {
             "id": row.id,
             "filename": row.filename,
@@ -119,6 +179,8 @@ class AdminService:
             "size": row.size,
             "created_at": row.created_at,
             "created_by": row.created_by,
+            "course_id": normalized_scope["course_id"],
+            "offering_id": normalized_scope["offering_id"],
             "preview_mode": preview_mode,
             "previewable": preview_mode != "unsupported",
             "preview_url": f"{normalized_prefix}/{row.id}/preview",
@@ -634,13 +696,23 @@ class AdminService:
             if item.class_name == class_record.name and owner == class_owner:
                 raise HTTPException(status_code=409, detail="班级已被学生使用，无法删除")
 
+        offering_repo = CourseOfferingRepository(self.db)
+        related_offerings = [
+            item
+            for item in await offering_repo.list_all()
+            if normalize_text(item.class_name) == normalize_text(class_record.name)
+            and normalize_text(item.created_by) == class_owner
+        ]
+        for item in related_offerings:
+            await offering_repo.delete(item.id)
+
         await self.db.delete(class_record)
         await append_operation_log(
             self.db,
             operator=normalized_teacher,
             action="classes.delete",
             target=class_record.name,
-            detail=f"class_id={class_id}",
+            detail=f"class_id={class_id}, removed_offerings={len(related_offerings)}",
         )
         await self._commit()
         return {"message": "班级已删除"}
@@ -1115,7 +1187,13 @@ class AdminService:
             "remaining": remaining,
         }
 
-    async def upload_resource_file(self, teacher_username: str, file: UploadFile = File(...)):
+    async def upload_resource_file(
+        self,
+        teacher_username: str,
+        file: UploadFile = File(...),
+        course_id: Optional[str] = None,
+        offering_id: Optional[str] = None,
+    ):
         normalized_teacher, _ = await self._ensure_teacher(teacher_username)
         if not file.filename:
             raise HTTPException(status_code=400, detail="文件名不能为空")
@@ -1154,15 +1232,29 @@ class AdminService:
                 "created_by": normalized_teacher,
             }
         )
+        scope = self._normalize_resource_scope(course_id=course_id, offering_id=offering_id)
+        if self._has_resource_scope(scope):
+            bindings = await self._load_resource_scope_bindings()
+            bindings[row.id] = scope
+            await self._save_resource_scope_bindings(bindings)
         await self._commit()
-        return self._resource_payload(row)
+        return self._resource_payload(row, scope=scope)
 
-    async def list_resource_files(self, teacher_username: str, name: Optional[str] = None, file_type: Optional[str] = None):
+    async def list_resource_files(
+        self,
+        teacher_username: str,
+        name: Optional[str] = None,
+        file_type: Optional[str] = None,
+        course_id: Optional[str] = None,
+        offering_id: Optional[str] = None,
+    ):
         await self._ensure_teacher(teacher_username)
         normalized_name = normalize_text(name).lower()
         normalized_type = normalize_text(file_type).lower().lstrip(".")
+        scope_filter = self._normalize_resource_scope(course_id=course_id, offering_id=offering_id)
+        bindings = await self._load_resource_scope_bindings()
 
-        items = []
+        items: list[tuple[object, dict[str, str]]] = []
         for row in await ResourceRepository(self.db).list_all():
             if normalized_name and normalized_name not in normalize_text(row.filename).lower():
                 continue
@@ -1170,22 +1262,39 @@ class AdminService:
                 continue
             if not os.path.exists(row.file_path):
                 continue
-            items.append(row)
-        items.sort(key=lambda item: item.created_at or datetime.min, reverse=True)
-        payload_items = [self._resource_payload(item) for item in items]
+            scope = self._resource_scope_or_empty(bindings.get(row.id))
+            if not self._resource_scope_matches(scope, scope_filter):
+                continue
+            items.append((row, scope))
+        items.sort(key=lambda item: item[0].created_at or datetime.min, reverse=True)
+        payload_items = [self._resource_payload(item, scope=scope) for item, scope in items]
         return {"total": len(payload_items), "items": payload_items}
 
-    async def get_resource_file_detail(self, resource_id: str, teacher_username: str):
+    async def get_resource_file_detail(
+        self,
+        resource_id: str,
+        teacher_username: str,
+        course_id: Optional[str] = None,
+        offering_id: Optional[str] = None,
+    ):
         await self._ensure_teacher(teacher_username)
+        scope_filter = self._normalize_resource_scope(course_id=course_id, offering_id=offering_id)
+        bindings = await self._load_resource_scope_bindings()
+        scope = self._resource_scope_or_empty(bindings.get(resource_id))
+        if not self._resource_scope_matches(scope, scope_filter):
+            raise HTTPException(status_code=404, detail="资源文件不存在")
         row = await ResourceRepository(self.db).get(resource_id)
         if not row:
             raise HTTPException(status_code=404, detail="资源文件不存在")
         if not os.path.exists(row.file_path):
             await ResourceRepository(self.db).delete(resource_id)
+            if resource_id in bindings:
+                bindings.pop(resource_id, None)
+                await self._save_resource_scope_bindings(bindings)
             await self._commit()
             raise HTTPException(status_code=404, detail="资源文件不存在")
 
-        payload = self._resource_payload(row)
+        payload = self._resource_payload(row, scope=scope)
         preview_mode = payload["preview_mode"]
         if preview_mode in {"markdown", "text"}:
             payload["preview_text"] = self.main._read_text_preview(row.file_path)
@@ -1195,8 +1304,19 @@ class AdminService:
             payload["preview_text"] = ""
         return payload
 
-    async def delete_resource_file(self, resource_id: str, teacher_username: str):
+    async def delete_resource_file(
+        self,
+        resource_id: str,
+        teacher_username: str,
+        course_id: Optional[str] = None,
+        offering_id: Optional[str] = None,
+    ):
         await self._ensure_teacher(teacher_username)
+        scope_filter = self._normalize_resource_scope(course_id=course_id, offering_id=offering_id)
+        bindings = await self._load_resource_scope_bindings()
+        scope = self._resource_scope_or_empty(bindings.get(resource_id))
+        if not self._resource_scope_matches(scope, scope_filter):
+            raise HTTPException(status_code=404, detail="资源文件不存在")
         row = await ResourceRepository(self.db).get(resource_id)
         if not row:
             raise HTTPException(status_code=404, detail="资源文件不存在")
@@ -1206,11 +1326,25 @@ class AdminService:
             except OSError as exc:
                 raise HTTPException(status_code=500, detail=f"删除文件失败: {exc}") from exc
         await ResourceRepository(self.db).delete(resource_id)
+        if resource_id in bindings:
+            bindings.pop(resource_id, None)
+            await self._save_resource_scope_bindings(bindings)
         await self._commit()
         return {"message": "资源文件已删除", "id": resource_id}
 
-    async def preview_resource_file(self, resource_id: str, teacher_username: str):
+    async def preview_resource_file(
+        self,
+        resource_id: str,
+        teacher_username: str,
+        course_id: Optional[str] = None,
+        offering_id: Optional[str] = None,
+    ):
         await self._ensure_teacher(teacher_username)
+        scope_filter = self._normalize_resource_scope(course_id=course_id, offering_id=offering_id)
+        bindings = await self._load_resource_scope_bindings()
+        scope = self._resource_scope_or_empty(bindings.get(resource_id))
+        if not self._resource_scope_matches(scope, scope_filter):
+            raise HTTPException(status_code=404, detail="资源文件不存在")
         row = await ResourceRepository(self.db).get(resource_id)
         if not row or not os.path.exists(row.file_path):
             raise HTTPException(status_code=404, detail="资源文件不存在")
@@ -1223,8 +1357,19 @@ class AdminService:
             content_disposition_type="inline",
         )
 
-    async def download_resource_file(self, resource_id: str, teacher_username: str):
+    async def download_resource_file(
+        self,
+        resource_id: str,
+        teacher_username: str,
+        course_id: Optional[str] = None,
+        offering_id: Optional[str] = None,
+    ):
         await self._ensure_teacher(teacher_username)
+        scope_filter = self._normalize_resource_scope(course_id=course_id, offering_id=offering_id)
+        bindings = await self._load_resource_scope_bindings()
+        scope = self._resource_scope_or_empty(bindings.get(resource_id))
+        if not self._resource_scope_matches(scope, scope_filter):
+            raise HTTPException(status_code=404, detail="资源文件不存在")
         row = await ResourceRepository(self.db).get(resource_id)
         if not row or not os.path.exists(row.file_path):
             raise HTTPException(status_code=404, detail="资源文件不存在")
