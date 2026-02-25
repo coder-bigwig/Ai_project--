@@ -32,6 +32,43 @@ class OperationLogRepository:
         result = await self.db.execute(select(OperationLogORM).order_by(desc(OperationLogORM.created_at)))
         return list(result.scalars().all())
 
+    async def list_by_action_since(self, action: str, since: datetime) -> Sequence[OperationLogORM]:
+        normalized_action = str(action or "").strip()
+        if not normalized_action:
+            return []
+        stmt = (
+            select(OperationLogORM)
+            .where(
+                OperationLogORM.action == normalized_action,
+                OperationLogORM.created_at >= since,
+            )
+            .order_by(desc(OperationLogORM.created_at))
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def exists_by_action_target_operator_since(
+        self,
+        *,
+        action: str,
+        target: str,
+        operator: str,
+        since: datetime,
+    ) -> bool:
+        normalized_action = str(action or "").strip()
+        normalized_target = str(target or "").strip()
+        normalized_operator = str(operator or "").strip()
+        if not normalized_action or not normalized_target or not normalized_operator:
+            return False
+        stmt = select(func.count()).select_from(OperationLogORM).where(
+            OperationLogORM.action == normalized_action,
+            OperationLogORM.target == normalized_target,
+            OperationLogORM.operator == normalized_operator,
+            OperationLogORM.created_at >= since,
+        )
+        value = await self.db.scalar(stmt)
+        return int(value or 0) > 0
+
     async def count(self) -> int:
         stmt = select(func.count()).select_from(OperationLogORM)
         value = await self.db.scalar(stmt)

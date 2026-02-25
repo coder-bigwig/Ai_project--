@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { QRCodeCanvas } from 'qrcode.react';
-import './TeacherUserManagement.css';
+import '../styles/TeacherUserManagement.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
@@ -970,4 +970,3 @@ return (
 }
 
 export default TeacherUserManagement;
-

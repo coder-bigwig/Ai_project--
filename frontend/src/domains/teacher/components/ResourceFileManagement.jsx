@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import ResourcePreviewContent from './ResourcePreviewContent';
-import './ResourceFileManagement.css';
+import ResourcePreviewContent from '../../../shared/resource-preview/ResourcePreviewContent';
+import '../styles/ResourceFileManagement.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 

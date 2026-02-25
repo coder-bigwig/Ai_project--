@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import axios from 'axios';
-import TeacherDashboard from './TeacherDashboard';
-import OfferingDetail from './OfferingDetail';
-import StudentCourseList from './StudentCourseList';
-import ExperimentWorkspace from './ExperimentWorkspace';
-import FloatingAIAssistant from './FloatingAIAssistant';
+import TeacherDashboard from '../domains/teacher/pages/TeacherDashboard';
+import OfferingDetail from '../domains/teacher/components/OfferingDetail';
+import AdminDashboard from '../domains/admin/pages/AdminDashboard';
+import StudentCourseList from '../domains/student/pages/StudentCourseList';
+import ExperimentWorkspace from '../shared/workspace/ExperimentWorkspace';
+import FloatingAIAssistant from '../shared/ai/FloatingAIAssistant';
 import './App.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
@@ -222,8 +223,76 @@ function App() {
                 <Route
                     path="/teacher/offering/:offeringId"
                     element={
-                        isLoggedIn && (userRole === 'teacher' || userRole === 'admin') ? (
+                        !isLoggedIn ? (
+                            <Navigate to="/login" replace />
+                        ) : userRole === 'teacher' ? (
                             <OfferingDetail username={username} userRole={userRole} onLogout={handleLogout} />
+                        ) : userRole === 'admin' ? (
+                            <Navigate to="/admin" replace />
+                        ) : (
+                            <Navigate to="/" replace />
+                        )
+                    }
+                />
+                <Route
+                    path="/teacher/course/:courseId"
+                    element={
+                        isLoggedIn ? (
+                            userRole === 'teacher' ? (
+                                <TeacherDashboard username={username} userRole={userRole} onLogout={handleLogout} />
+                            ) : userRole === 'admin' ? (
+                                <Navigate to="/admin" replace />
+                            ) : (
+                                <Navigate to="/" replace />
+                            )
+                        ) : (
+                            <Navigate to="/login" replace />
+                        )
+                    }
+                />
+                <Route
+                    path="/teacher"
+                    element={
+                        isLoggedIn ? (
+                            userRole === 'teacher' ? (
+                                <TeacherDashboard username={username} userRole={userRole} onLogout={handleLogout} />
+                            ) : userRole === 'admin' ? (
+                                <Navigate to="/admin" replace />
+                            ) : (
+                                <Navigate to="/" replace />
+                            )
+                        ) : (
+                            <Navigate to="/login" replace />
+                        )
+                    }
+                />
+                <Route
+                    path="/admin"
+                    element={
+                        isLoggedIn ? (
+                            userRole === 'admin' ? (
+                                <AdminDashboard username={username} onLogout={handleLogout} />
+                            ) : userRole === 'teacher' ? (
+                                <Navigate to="/teacher" replace />
+                            ) : (
+                                <Navigate to="/" replace />
+                            )
+                        ) : (
+                            <Navigate to="/login" replace />
+                        )
+                    }
+                />
+                <Route
+                    path="/student/course/:offeringId"
+                    element={
+                        isLoggedIn ? (
+                            userRole === 'teacher' ? (
+                                <Navigate to="/teacher" replace />
+                            ) : userRole === 'admin' ? (
+                                <Navigate to="/admin" replace />
+                            ) : (
+                                <StudentCourseList username={username} onLogout={handleLogout} />
+                            )
                         ) : (
                             <Navigate to="/login" replace />
                         )
@@ -233,8 +302,10 @@ function App() {
                     path="/"
                     element={
                         isLoggedIn ? (
-                            (userRole === 'teacher' || userRole === 'admin') ? (
-                                <TeacherDashboard username={username} userRole={userRole} onLogout={handleLogout} />
+                            userRole === 'teacher' ? (
+                                <Navigate to="/teacher" replace />
+                            ) : userRole === 'admin' ? (
+                                <Navigate to="/admin" replace />
                             ) : (
                                 <StudentCourseList username={username} onLogout={handleLogout} />
                             )

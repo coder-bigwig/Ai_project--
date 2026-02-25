@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { persistJupyterTokenFromUrl } from './jupyterAuth';
+import { persistJupyterTokenFromUrl } from '../../shared/jupyter/jupyterAuth';
 import './StudentPortal.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';

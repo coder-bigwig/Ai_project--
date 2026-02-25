@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import './AdminResourceControl.css';
+import '../styles/AdminResourceControl.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
@@ -428,4 +428,3 @@ function AdminResourceControl({ username }) {
 }
 
 export default AdminResourceControl;
-

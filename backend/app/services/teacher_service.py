@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import io
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import File, HTTPException, UploadFile
@@ -20,6 +20,7 @@ from ..repositories import (
     CourseStudentMembershipRepository,
     CourseRepository,
     ExperimentRepository,
+    OperationLogRepository,
     PasswordHashRepository,
     SecurityQuestionRepository,
     StudentExperimentRepository,
@@ -28,6 +29,8 @@ from ..repositories import (
 from .identity_service import ensure_teacher_or_admin, normalize_text, resolve_user_role
 from .membership_consistency_service import reconcile_membership_consistency
 from .operation_log_service import append_operation_log
+
+JUPYTER_ACCESS_LOG_DEDUP_SECONDS = 10
 
 
 class TeacherService:
@@ -311,6 +314,28 @@ class TeacherService:
             return f"20{normalized[:2]}"
         return ""
 
+    @staticmethod
+    def _to_utc_datetime(value: Optional[datetime]) -> Optional[datetime]:
+        if not isinstance(value, datetime):
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @classmethod
+    def _parse_datetime_value(cls, value) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return cls._to_utc_datetime(value)
+
+        text = normalize_text(value)
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return cls._to_utc_datetime(parsed)
+
     @classmethod
     def _format_admission_year_label(cls, admission_year: str) -> str:
         normalized = cls._admission_year(admission_year)
@@ -508,15 +533,14 @@ class TeacherService:
         default_hash = self.main._hash_password(DEFAULT_PASSWORD)
 
         for row_number, row in parsed_rows:
-            student_id, real_name, class_name, organization, phone, admission_year_raw = row
+            student_id, real_name, class_name, organization, admission_year_raw = row
             student_id = normalize_text(student_id)
             real_name = normalize_text(real_name)
             class_name = normalize_text(class_name)
             organization = normalize_text(organization)
-            phone = normalize_text(phone)
             admission_year = self._admission_year(admission_year_raw) or self._infer_admission_year(student_id)
 
-            if not all([student_id, real_name, class_name, organization, phone]):
+            if not all([student_id, real_name, class_name, organization]):
                 failed_count += 1
                 errors.append({"row": row_number, "student_id": student_id, "reason": "required fields are missing"})
                 continue
@@ -558,7 +582,7 @@ class TeacherService:
                             "class_name": class_name,
                             "admission_year": admission_year,
                             "organization": organization,
-                            "phone": phone,
+                            "phone": "",
                             "password_hash": default_hash,
                             "security_question": "",
                             "security_answer_hash": "",
@@ -901,7 +925,123 @@ class TeacherService:
             )
         return payload
 
-    async def get_statistics(self):
+    async def get_course_overview_statistics(self, teacher_username: str, course_id: str, days: int = 30):
+        _, _, course = await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
+
+        safe_days = max(1, min(int(days or 30), 365))
+        since_dt = datetime.now(timezone.utc) - timedelta(days=safe_days)
+
+        student_pairs = await self._course_student_pairs(course.id)
+        course_student_ids = set()
+        class_name_by_student = {}
+        for _, student in student_pairs:
+            student_id = normalize_text(student.student_id or student.username)
+            if not student_id:
+                continue
+            course_student_ids.add(student_id)
+            class_name_by_student[student_id] = normalize_text(student.class_name)
+
+        if not course_student_ids:
+            return {
+                "course_id": course.id,
+                "window_days": safe_days,
+                "jupyter_experiment_visit_count": 0,
+                "active_student_count": 0,
+                "active_class_count": 0,
+                "visit_data_source": "submissions_start_time",
+            }
+
+        experiment_rows = await ExperimentRepository(self.db).list_by_course_ids([course.id])
+        course_experiment_ids = {
+            normalize_text(item.id)
+            for item in experiment_rows
+            if normalize_text(item.id)
+        }
+
+        active_student_ids = set()
+        fallback_visit_count = 0
+        if course_experiment_ids:
+            submission_rows = await StudentExperimentRepository(self.db).list_all()
+            for row in submission_rows:
+                experiment_id = normalize_text(row.experiment_id)
+                student_id = normalize_text(row.student_id)
+                if experiment_id not in course_experiment_ids or student_id not in course_student_ids:
+                    continue
+
+                start_time = self._parse_datetime_value(row.start_time)
+                submit_time = self._parse_datetime_value(row.submit_time)
+
+                if start_time and start_time >= since_dt:
+                    fallback_visit_count += 1
+                    active_student_ids.add(student_id)
+                if submit_time and submit_time >= since_dt:
+                    active_student_ids.add(student_id)
+
+        logged_visit_count = 0
+        last_counted_visit_at = {}
+        operation_logs = await OperationLogRepository(self.db).list_by_action_since(
+            action="experiments.jupyterhub_access",
+            since=since_dt,
+        )
+        for log in operation_logs:
+            created_at = self._parse_datetime_value(log.created_at)
+            if not created_at or created_at < since_dt:
+                continue
+
+            target = normalize_text(log.target)
+            target_course_id, target_experiment_id, target_student_id = (target.split(":", 2) + ["", "", ""])[:3]
+            if normalize_text(target_course_id) != normalize_text(course.id):
+                continue
+            normalized_student_id = normalize_text(target_student_id)
+            if normalized_student_id not in course_student_ids:
+                continue
+
+            dedup_key = f"{normalize_text(target_experiment_id)}:{normalized_student_id}"
+            last_counted_at = last_counted_visit_at.get(dedup_key)
+            if last_counted_at and abs((last_counted_at - created_at).total_seconds()) <= JUPYTER_ACCESS_LOG_DEDUP_SECONDS:
+                active_student_ids.add(normalized_student_id)
+                continue
+
+            logged_visit_count += 1
+            last_counted_visit_at[dedup_key] = created_at
+            active_student_ids.add(normalized_student_id)
+
+        try:
+            if self.main._jupyterhub_enabled():
+                hub_state_map = self.main._hub_user_state_map()
+                for student_id in course_student_ids:
+                    state = self.main._extract_server_state(hub_state_map.get(student_id))
+                    last_activity = self._parse_datetime_value(state.get("last_activity"))
+                    if last_activity and last_activity >= since_dt:
+                        active_student_ids.add(student_id)
+        except Exception:
+            pass
+
+        active_class_names = {
+            class_name_by_student.get(student_id, "")
+            for student_id in active_student_ids
+            if normalize_text(class_name_by_student.get(student_id, ""))
+        }
+
+        return {
+            "course_id": course.id,
+            "window_days": safe_days,
+            "jupyter_experiment_visit_count": int(logged_visit_count if logged_visit_count > 0 else fallback_visit_count),
+            "active_student_count": len(active_student_ids),
+            "active_class_count": len(active_class_names),
+            "visit_data_source": "operation_logs" if logged_visit_count > 0 else "submissions_start_time",
+        }
+
+    async def get_statistics(self, teacher_username: str = "", course_id: str = "", days: int = 30):
+        normalized_teacher = normalize_text(teacher_username)
+        normalized_course_id = normalize_text(course_id)
+        if normalized_teacher and normalized_course_id:
+            return await self.get_course_overview_statistics(
+                teacher_username=normalized_teacher,
+                course_id=normalized_course_id,
+                days=days,
+            )
+
         experiments = await ExperimentRepository(self.db).list_all()
         submissions = await StudentExperimentRepository(self.db).list_all()
         status_count = {}

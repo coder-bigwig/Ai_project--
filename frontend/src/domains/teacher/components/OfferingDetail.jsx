@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom';
-import cover01 from './assets/system-covers/cover-01.svg';
-import cover02 from './assets/system-covers/cover-02.svg';
-import cover03 from './assets/system-covers/cover-03.svg';
-import './OfferingDetail.css';
+import cover01 from '../../../shared/assets/system-covers/cover-01.svg';
+import cover02 from '../../../shared/assets/system-covers/cover-02.svg';
+import cover03 from '../../../shared/assets/system-covers/cover-03.svg';
+import '../styles/OfferingDetail.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const OFFERING_COVER_STORAGE_KEY = 'offeringSystemCoverMap';

@@ -821,9 +821,9 @@ class AdminService:
         skipped_count = 0
 
         for row_number, row in parsed_rows:
-            student_id, real_name, class_name, organization, phone, admission_year_raw = row
+            student_id, real_name, class_name, organization, admission_year_raw = row
             admission_year = self._admission_year(admission_year_raw) or self._infer_admission_year(student_id)
-            if not all([student_id, real_name, class_name, organization, phone]):
+            if not all([student_id, real_name, class_name, organization]):
                 errors.append({"row": row_number, "student_id": student_id, "reason": "字段不能为空"})
                 continue
             if not admission_year:
@@ -858,7 +858,7 @@ class AdminService:
                     "class_name": class_name,
                     "admission_year": admission_year,
                     "organization": organization,
-                    "phone": phone,
+                    "phone": "",
                     "password_hash": self.main._hash_password(DEFAULT_PASSWORD),
                     "security_question": "",
                     "security_answer_hash": "",

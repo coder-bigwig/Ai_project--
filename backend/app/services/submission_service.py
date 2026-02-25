@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import File, HTTPException, UploadFile
@@ -11,11 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..file_storage import build_virtual_path
 from ..repositories import (
     ExperimentRepository,
+    OperationLogRepository,
     StudentExperimentRepository,
     SubmissionPdfRepository,
     UserRepository,
 )
 from .identity_service import ensure_teacher_or_admin, normalize_text, resolve_user_role
+from .operation_log_service import append_operation_log
+
+JUPYTER_ACCESS_LOG_DEDUP_SECONDS = 10
 
 
 class SubmissionService:
@@ -144,7 +148,7 @@ class SubmissionService:
         normalized, _ = await ensure_teacher_or_admin(self.db, username)
         return normalized
 
-    async def start_experiment(self, experiment_id: str, student_id: str):
+    async def start_experiment(self, experiment_id: str, student_id: str, count_visit: bool = True):
         student_id = normalize_text(student_id)
         if not student_id:
             raise HTTPException(status_code=400, detail="student_id is required")
@@ -167,24 +171,46 @@ class SubmissionService:
         user_notebook_name = f"{student_id}_{experiment_id[:8]}.ipynb"
         notebook_relpath = f"work/{user_notebook_name}"
 
+        now = datetime.now()
         if student_exp is None:
             payload = {
                 "id": str(uuid.uuid4()),
                 "experiment_id": experiment_id,
                 "student_id": student_id,
                 "status": self.main.ExperimentStatus.IN_PROGRESS.value,
-                "start_time": datetime.now(),
+                "start_time": now,
                 "notebook_content": user_notebook_name,
                 "submit_time": None,
                 "score": None,
                 "ai_feedback": "",
                 "teacher_comment": "",
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
+                "created_at": now,
+                "updated_at": now,
             }
             row = await StudentExperimentRepository(self.db).create(payload)
-            await self._commit()
-            student_exp = self._to_student_experiment_model(row)
+        else:
+            row = existing
+            row.status = self.main.ExperimentStatus.IN_PROGRESS.value
+            row.updated_at = now
+
+        if bool(count_visit):
+            access_log_target = f"{normalize_text(experiment.course_id) or '-'}:{experiment_id}:{student_id}"
+            access_log_exists = await OperationLogRepository(self.db).exists_by_action_target_operator_since(
+                action="experiments.jupyterhub_access",
+                target=access_log_target,
+                operator=student_id,
+                since=now - timedelta(seconds=JUPYTER_ACCESS_LOG_DEDUP_SECONDS),
+            )
+            if not access_log_exists:
+                await append_operation_log(
+                    self.db,
+                    operator=student_id,
+                    action="experiments.jupyterhub_access",
+                    target=access_log_target,
+                    detail="student opened experiment workspace",
+                )
+        await self._commit()
+        student_exp = self._to_student_experiment_model(row)
 
         user_token_for_url = None
         if self.main._jupyterhub_enabled():

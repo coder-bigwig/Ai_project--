@@ -212,9 +212,18 @@ async def get_all_student_progress(
     return await service.get_all_student_progress(teacher_username=teacher_username)
 
 
-async def get_statistics(db: Optional[AsyncSession] = Depends(get_db)):
+async def get_statistics(
+    teacher_username: str = "",
+    course_id: str = "",
+    days: int = 30,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
     service = build_teacher_service(main_module=main, db=db)
-    return await service.get_statistics()
+    return await service.get_statistics(
+        teacher_username=teacher_username,
+        course_id=course_id,
+        days=days,
+    )
 
 
 async def create_teacher_offering(

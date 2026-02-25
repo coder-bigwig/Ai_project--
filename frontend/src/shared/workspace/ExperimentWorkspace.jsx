@@ -2,10 +2,34 @@ import React, { useEffect, useRef, useState } from 'react';
 import Split from 'react-split';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { persistJupyterTokenFromUrl } from './jupyterAuth';
+import { persistJupyterTokenFromUrl } from '../jupyter/jupyterAuth';
 import './ExperimentWorkspace.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const workspaceLaunchRequestCache = new Map();
+
+function runDedupedWorkspaceRequest(key, requestFactory) {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) {
+        return Promise.resolve().then(requestFactory);
+    }
+
+    const existing = workspaceLaunchRequestCache.get(normalizedKey);
+    if (existing) {
+        return existing;
+    }
+
+    const requestPromise = Promise.resolve()
+        .then(requestFactory)
+        .finally(() => {
+            if (workspaceLaunchRequestCache.get(normalizedKey) === requestPromise) {
+                workspaceLaunchRequestCache.delete(normalizedKey);
+            }
+        });
+
+    workspaceLaunchRequestCache.set(normalizedKey, requestPromise);
+    return requestPromise;
+}
 
 function isPdfDocument(doc) {
     const fileName = String(doc?.fileName || '').toLowerCase();
@@ -276,19 +300,27 @@ function ExperimentWorkspace() {
             }
 
             if (isTeacherOrAdmin) {
-                const hubResp = await axios.get(
-                    `${API_BASE_URL}/api/jupyterhub/auto-login-url`,
-                    { params: { username, experiment_id: experimentId } }
+                const launchKey = `teacher:${username}:${experimentId}`;
+                const hubResp = await runDedupedWorkspaceRequest(
+                    launchKey,
+                    () => axios.get(
+                        `${API_BASE_URL}/api/jupyterhub/auto-login-url`,
+                        { params: { username, experiment_id: experimentId } }
+                    )
                 );
                 const resolvedTeacherUrl = persistJupyterTokenFromUrl(hubResp?.data?.jupyter_url || '');
                 setJupyterUrl(resolvedTeacherUrl);
                 return;
             }
 
-            const startRes = await axios.post(
-                `${API_BASE_URL}/api/student-experiments/start/${experimentId}`,
-                null,
-                { params: { student_id: username } }
+            const launchKey = `student:${username}:${experimentId}`;
+            const startRes = await runDedupedWorkspaceRequest(
+                launchKey,
+                () => axios.post(
+                    `${API_BASE_URL}/api/student-experiments/start/${experimentId}`,
+                    null,
+                    { params: { student_id: username } }
+                )
             );
             const resolvedJupyterUrl = persistJupyterTokenFromUrl(startRes.data.jupyter_url);
             setJupyterUrl(resolvedJupyterUrl);

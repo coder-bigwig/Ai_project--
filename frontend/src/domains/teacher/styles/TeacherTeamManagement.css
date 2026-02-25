@@ -15,14 +15,15 @@
 
 .team-add-btn {
     border: none;
-    border-radius: 999px;
-    min-height: 40px;
-    padding: 0 24px;
+    border-radius: 4px;
+    padding: 8px 12px;
     color: #fff;
-    font-size: 15px;
-    background: linear-gradient(135deg, #5f8fff 0%, #516de8 100%);
-    box-shadow: 0 8px 18px rgba(85, 120, 242, 0.25);
+    background: #409eff;
     cursor: pointer;
+}
+
+.team-add-btn:hover {
+    background: #66b1ff;
 }
 
 .team-toolbar-right {

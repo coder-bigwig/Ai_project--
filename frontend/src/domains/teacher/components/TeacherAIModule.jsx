@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import './TeacherAIModule.css';
+import '../styles/TeacherAIModule.css';
 import {
     DEFAULT_AI_ASSISTANT_CONFIG,
     loadAIConfigFromServer,
     readAIConfig,
     saveAIConfigToServer,
     writeAIConfig
-} from './aiAssistantConfig';
+} from '../../../shared/ai/aiAssistantConfig';
 
 function TeacherAIModule({ username }) {
     const [formData, setFormData] = useState(() => readAIConfig());

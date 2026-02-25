@@ -82,6 +82,9 @@ if "%PORT%"=="3000" (
 )
 cd frontend
 set REACT_APP_API_URL=http://localhost:8001
+set BROWSER=none
+echo [dev] Opening browser at http://localhost:%PORT% ...
+start "" "http://localhost:%PORT%"
 call npm start
 if %errorlevel% neq 0 (
   echo [dev] React dev server exited unexpectedly.

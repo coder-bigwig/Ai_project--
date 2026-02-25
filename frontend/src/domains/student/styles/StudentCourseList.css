@@ -128,6 +128,10 @@
     min-height: calc(100vh - 76px);
 }
 
+.lab-main-layout.course-detail-route {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .lab-sidebar {
     border-right: 1px solid var(--line-soft);
     background: #f7fbff;
@@ -849,6 +853,11 @@
 
 .lab-submit-btn:hover {
     background: #1d995f;
+}
+
+.lab-submit-btn:disabled {
+    background: #9db7a8;
+    cursor: not-allowed;
 }
 
 .lab-loading,

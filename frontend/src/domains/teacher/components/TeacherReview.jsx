@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import './StudentPortal.css'; // Reusing styles for table and badges
+import '../../../legacy/portals/StudentPortal.css'; // Reusing styles for table and badges
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 

@@ -1941,11 +1941,24 @@ def _list_resource_records(name_filter: str = "", type_filter: str = "") -> List
 
 
 def _is_template_header(row_values: List[str]) -> bool:
-    normalized = [_normalize_text(value) for value in row_values[:len(TEMPLATE_HEADERS)]]
+    normalized = [_normalize_text(value) for value in row_values]
     return (
         normalized[:len(TEMPLATE_HEADERS)] == TEMPLATE_HEADERS
         or normalized[:len(LEGACY_TEMPLATE_HEADERS)] == LEGACY_TEMPLATE_HEADERS
     )
+
+
+def _normalize_student_import_row_values(row_values: List[str]) -> List[str]:
+    normalized_values = [_normalize_text(value) for value in row_values]
+    target_count = len(TEMPLATE_HEADERS)
+    if len(normalized_values) >= target_count + 1:
+        # Legacy files may still include the removed "手机号" column at index 4.
+        normalized_values = normalized_values[:4] + [normalized_values[5]]
+    else:
+        normalized_values = normalized_values[:target_count]
+    while len(normalized_values) < target_count:
+        normalized_values.append("")
+    return normalized_values[:target_count]
 
 
 def _read_rows_from_csv(file_content: bytes) -> List[Tuple[int, List[str]]]:
@@ -1955,13 +1968,12 @@ def _read_rows_from_csv(file_content: bytes) -> List[Tuple[int, List[str]]]:
         content = file_content.decode("gbk")
 
     parsed_rows: List[Tuple[int, List[str]]] = []
-    column_count = len(TEMPLATE_HEADERS)
+    source_column_count = len(TEMPLATE_HEADERS) + 1
     reader = csv.reader(io.StringIO(content))
     for row_index, row in enumerate(reader, start=1):
-        values = [_normalize_text(value) for value in row[:column_count]]
-        while len(values) < column_count:
-            values.append("")
-        if row_index == 1 and _is_template_header(values):
+        raw_values = row[:source_column_count]
+        values = _normalize_student_import_row_values(raw_values)
+        if row_index == 1 and _is_template_header(raw_values):
             continue
         if not any(values):
             continue
@@ -1976,14 +1988,13 @@ def _read_rows_from_xlsx(file_content: bytes) -> List[Tuple[int, List[str]]]:
         raise HTTPException(status_code=500, detail="openpyxl is required for xlsx support") from exc
 
     parsed_rows: List[Tuple[int, List[str]]] = []
-    column_count = len(TEMPLATE_HEADERS)
+    source_column_count = len(TEMPLATE_HEADERS) + 1
     workbook = load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
     sheet = workbook.active
     for row_index, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-        values = [_normalize_text(value) for value in list(row)[:column_count]]
-        while len(values) < column_count:
-            values.append("")
-        if row_index == 1 and _is_template_header(values):
+        raw_values = list(row)[:source_column_count]
+        values = _normalize_student_import_row_values(raw_values)
+        if row_index == 1 and _is_template_header(raw_values):
             continue
         if not any(values):
             continue
