@@ -2,7 +2,7 @@ from typing import List
 import os
 import re
 
-APP_TITLE = "缂備礁鍊哥换鎰玻閻愮儤鍋犻柛鈩冦仦缁憋綁鎮楀☉宕囩暤婵炲懎鐡慖缂傚倸鍊归悧婊堝煝閼测斁鍋撻崷顓炰哗閺夆晜妫冨顐⑩枎韫囷絽濡冲Δ鐘靛仜閸熻儻銇?- 闁诲骸婀遍崑銈夋偘濞嗘垹涓嶉柨娑樺閸婃咖PI"
+APP_TITLE = "福州理工学院AI编程实战教学平台 - 实验管理 API"
 
 JUPYTERHUB_INTERNAL_URL = os.getenv("JUPYTERHUB_INTERNAL_URL", "http://jupyterhub:8000").rstrip("/")
 # Prefer same-origin reverse-proxy path to avoid cross-origin cookie/WebSocket auth mismatches.

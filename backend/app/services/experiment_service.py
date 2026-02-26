@@ -113,7 +113,7 @@ class ExperimentService:
     async def _assert_experiment_manage_permission(self, row, teacher_username: str) -> tuple[str, str]:
         normalized_teacher, role = await ensure_teacher_or_admin(self.db, teacher_username)
         if role != "admin" and normalize_text(row.created_by) != normalized_teacher:
-            raise HTTPException(status_code=403, detail="鏃犳潈闄愭搷浣滆瀹為獙")
+            raise HTTPException(status_code=403, detail="无权限操作该实验")
         return normalized_teacher, role
 
     async def _hard_delete_experiment(self, experiment_id: str):

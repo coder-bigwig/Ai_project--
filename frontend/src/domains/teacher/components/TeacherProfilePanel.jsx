@@ -117,7 +117,7 @@ function TeacherProfilePanel({ username, userRole }) {
       setSecurityQuestionSet(true);
       setSecurityAnswer('');
     } catch (error) {
-      alert(getErrorMessage(error, '淇濆瓨瀵嗕繚闂澶辫触'));
+      alert(getErrorMessage(error, '保存密保问题失败'));
     } finally {
       setSecuritySubmitting(false);
     }
