@@ -112,6 +112,7 @@ services:
       DOCKER_NOTEBOOK_IMAGE: training-lab:latest
       # Backend service token (for Hub API calls)
       EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      JUPYTERHUB_API_TOKEN: ${JUPYTERHUB_API_TOKEN:-training-idle-culler-token}
       JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
       ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-platform_root}
       TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
@@ -124,6 +125,26 @@ services:
         condition: service_completed_successfully
       data-loader:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Idle culler: periodically stop idle single-user servers.
+  idle-culler:
+    build:
+      context: ./jupyterhub
+      dockerfile: Dockerfile
+    command: >
+      sh -c "python -m jupyterhub_idle_culler
+      --url=http://jupyterhub:8000${JUPYTERHUB_BASE_URL:-/jupyter}/hub/api
+      --timeout=1800
+      --cull-every=60
+      --cull-users=false"
+    environment:
+      JUPYTERHUB_API_TOKEN: ${JUPYTERHUB_API_TOKEN:-training-idle-culler-token}
+      JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
+    networks:
+      - training-network
+    depends_on:
+      - jupyterhub
     restart: unless-stopped
 
   # 这是一个临时构建服务，用于构建学生镜像
