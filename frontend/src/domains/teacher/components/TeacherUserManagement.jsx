@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { QRCodeCanvas } from 'qrcode.react';
+import * as XLSX from 'xlsx';
 import '../styles/TeacherUserManagement.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const DEFAULT_STUDENT_PASSWORD = 'Fit963';
 
 function normalizeOptions(items) {
     if (!Array.isArray(items)) return [];
@@ -66,6 +68,7 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
     const [pageSize] = useState(20);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
+    const [exportingCredentials, setExportingCredentials] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null);
     const [importResult, setImportResult] = useState(null);
@@ -120,15 +123,20 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
 
     const loadClassAndYearOptions = useCallback(async () => {
         if (!normalizedCourseId) return;
-        try {
-            const [classRes, yearRes] = await Promise.all([
-                axios.get(`${studentApiBase}/classes`, { params: { teacher_username: username } }),
-                axios.get(`${studentApiBase}/admission-years`, { params: { teacher_username: username } }),
-            ]);
-            setClasses(normalizeOptions(classRes.data));
-            setAdmissionYears(normalizeOptions(yearRes.data));
-        } catch (error) {
+        const [classRes, yearRes] = await Promise.allSettled([
+            axios.get(`${studentApiBase}/classes`, { params: { teacher_username: username } }),
+            axios.get(`${studentApiBase}/admission-years`, { params: { teacher_username: username } }),
+        ]);
+
+        if (classRes.status === 'fulfilled') {
+            setClasses(normalizeOptions(classRes.value.data));
+        } else {
             setClasses([]);
+        }
+
+        if (yearRes.status === 'fulfilled') {
+            setAdmissionYears(normalizeOptions(yearRes.value.data));
+        } else {
             setAdmissionYears([]);
         }
     }, [normalizedCourseId, studentApiBase, username]);
@@ -184,6 +192,17 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
                 };
             });
     }, [classes, offerings]);
+
+    const classFilterOptions = useMemo(() => {
+        const names = new Set([
+            ...classes.map((item) => String(item.value || '').trim()).filter(Boolean),
+            ...offerings.map((item) => String(item.className || '').trim()).filter((name) => name && name !== '-'),
+            ...students.map((item) => String(item.class_name || '').trim()).filter((name) => name && name !== '-'),
+        ]);
+        return Array.from(names)
+            .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+            .map((name) => ({ value: name, label: name }));
+    }, [classes, offerings, students]);
 
     // Close the add-class menu on outside click or Escape for predictable popover behavior.
     useEffect(() => {
@@ -573,7 +592,7 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
     };
 
     const handleResetPassword = async (studentId) => {
-        if (!window.confirm(`确认将 ${studentId} 的密码重置为 123456 吗？`)) return;
+        if (!window.confirm(`确认将 ${studentId} 的密码重置为 ${DEFAULT_STUDENT_PASSWORD} 吗？`)) return;
         try {
             await axios.post(`${studentApiBase}/${encodeURIComponent(studentId)}/reset-password`, null, {
                 params: { teacher_username: username }
@@ -623,6 +642,66 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
             alert(error.response?.data?.detail || '批量移出失败');
         }
     };
+    const handleExportStudentCredentials = async () => {
+        if (!normalizedCourseId) return;
+        setExportingCredentials(true);
+        const pageSizeForExport = 100;
+        const requestParams = {
+            teacher_username: username,
+            keyword,
+            class_name: classFilter,
+            admission_year: admissionYearFilter,
+            page_size: pageSizeForExport,
+        };
+
+        try {
+            const firstRes = await axios.get(studentApiBase, {
+                params: {
+                    ...requestParams,
+                    page: 1,
+                },
+            });
+            const firstPayload = firstRes.data || {};
+            const totalCount = Number(firstPayload.total || 0);
+            const totalPagesForExport = Math.max(1, Math.ceil(totalCount / pageSizeForExport));
+            const allItems = Array.isArray(firstPayload.items) ? [...firstPayload.items] : [];
+
+            for (let currentPage = 2; currentPage <= totalPagesForExport; currentPage += 1) {
+                const pageRes = await axios.get(studentApiBase, {
+                    params: {
+                        ...requestParams,
+                        page: currentPage,
+                    },
+                });
+                const pageItems = Array.isArray(pageRes.data?.items) ? pageRes.data.items : [];
+                allItems.push(...pageItems);
+            }
+
+            if (allItems.length === 0) {
+                alert('暂无可导出的学生账号');
+                return;
+            }
+
+            const sheetData = [
+                ['账号', '姓名', '密码'],
+                ...allItems.map((item) => [
+                    item.student_id || '-',
+                    item.real_name || '-',
+                    DEFAULT_STUDENT_PASSWORD,
+                ]),
+            ];
+            const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, '账号密码');
+            const classSegment = classFilter ? `-${String(classFilter).trim()}` : '';
+            XLSX.writeFile(workbook, `student-credentials${classSegment}.xlsx`);
+        } catch (error) {
+            alert(error.response?.data?.detail || '导出账号密码失败');
+        } finally {
+            setExportingCredentials(false);
+        }
+    };
+
     const handleRefreshClassPanel = useCallback(async () => {
         const autoCreateResult = await autoCreateOfferingsForClasses();
         if (autoCreateResult.failed.length > 0) {
@@ -731,7 +810,7 @@ return (
             <input type="text" placeholder="按学号或姓名搜索" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
             <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
                 <option value="">全部班级</option>
-                {classes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                {classFilterOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
             <select value={admissionYearFilter} onChange={(e) => setAdmissionYearFilter(e.target.value)}>
                 <option value="">全部入学年份</option>
@@ -740,6 +819,9 @@ return (
             <button onClick={handleSearch}>搜索</button>
             <button onClick={handleResetSearch}>重置</button>
             <button className="danger-btn" disabled={!classFilter || loading} onClick={handleBatchRemoveByClass}>移出当前班级学生</button>
+            <button disabled={loading || exportingCredentials} onClick={handleExportStudentCredentials}>
+                {exportingCredentials ? '导出中...' : '导出账号密码'}
+            </button>
         </div>
 
         <div className="user-table-wrap">
@@ -751,7 +833,6 @@ return (
                 <table className="user-table">
                     <thead>
                         <tr>
-                            <th>用户名</th>
                             <th>学号</th>
                             <th>组织</th>
                             <th>姓名</th>
@@ -763,7 +844,6 @@ return (
                     <tbody>
                         {students.map((item) => (
                             <tr key={item.student_id || item.username}>
-                                <td>{item.username || '-'}</td>
                                 <td>{item.student_id || '-'}</td>
                                 <td>{item.organization || '-'}</td>
                                 <td>{item.real_name || '-'}</td>

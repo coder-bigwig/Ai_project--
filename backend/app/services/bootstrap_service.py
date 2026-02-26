@@ -6,9 +6,11 @@ from typing import Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import ADMIN_ACCOUNTS, DEFAULT_PASSWORD, TEACHER_ACCOUNTS
+from ..config import ADMIN_ACCOUNTS, DEFAULT_ADMIN_PASSWORD, DEFAULT_TEACHER_PASSWORD, TEACHER_ACCOUNTS
 from ..repositories import AuthUserRepository, UserRepository
 from .identity_service import normalize_text
+
+_LEGACY_SHARED_DEFAULT_PASSWORDS = ("123456", "Tr@inLab!2026Safe")
 
 
 def _stable_account_id(role: str, username: str) -> str:
@@ -23,8 +25,6 @@ async def ensure_builtin_accounts(
     password_hasher: Callable[[str], str],
 ) -> dict:
     now = datetime.now()
-    default_hash = normalize_text(password_hasher(DEFAULT_PASSWORD))
-
     auth_repo = AuthUserRepository(db)
     user_repo = UserRepository(db)
 
@@ -38,9 +38,23 @@ async def ensure_builtin_accounts(
         normalized_role = normalize_text(role).lower()
         if not normalized_username or normalized_role not in {"admin", "teacher"}:
             return
-
+        role_default_password = DEFAULT_ADMIN_PASSWORD if normalized_role == "admin" else DEFAULT_TEACHER_PASSWORD
+        role_default_hash = normalize_text(password_hasher(role_default_password))
         existing = await auth_repo.get_by_login_identifier(normalized_username)
         created = existing is None
+        existing_hash = normalize_text(existing.password_hash) if existing is not None else ""
+
+        migratable_passwords = list(_LEGACY_SHARED_DEFAULT_PASSWORDS)
+        if normalized_role == "admin":
+            migratable_passwords.append(DEFAULT_TEACHER_PASSWORD)
+        else:
+            migratable_passwords.append(DEFAULT_ADMIN_PASSWORD)
+        migratable_hashes = {normalize_text(password_hasher(raw)) for raw in migratable_passwords}
+
+        if existing is None or existing_hash in migratable_hashes:
+            next_password_hash = role_default_hash
+        else:
+            next_password_hash = existing_hash
 
         await auth_repo.upsert_by_email(
             {
@@ -48,8 +62,8 @@ async def ensure_builtin_accounts(
                 "email": normalized_username,
                 "username": normalized_username,
                 "role": normalized_role,
-                # Keep existing password hash so manual password changes survive restart.
-                "password_hash": normalize_text(existing.password_hash) if existing is not None else default_hash,
+                # Keep manual password changes; migrate only known legacy/default values.
+                "password_hash": next_password_hash,
                 "is_active": bool(existing.is_active) if existing is not None else True,
                 "created_at": existing.created_at if existing is not None else now,
                 "updated_at": now,

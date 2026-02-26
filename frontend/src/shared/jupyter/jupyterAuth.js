@@ -1,7 +1,7 @@
 const TOKEN_COOKIE_NAME = 'training_jhub_token';
 const TOKEN_COOKIE_MAX_AGE_SECONDS = 43200;
 const JUPYTER_COOKIE_PATH = '/jupyter/';
-const DEV_JUPYTER_PORT = '8003';
+const DEV_JUPYTER_PORT = String(process.env.REACT_APP_JUPYTERHUB_DEV_PORT || '8003').trim() || '8003';
 
 function _normalizeBaseUrl(value) {
     const raw = String(value || '').trim();
@@ -61,4 +61,3 @@ export function persistJupyterTokenFromUrl(rawUrl) {
         return rawUrl;
     }
 }
-

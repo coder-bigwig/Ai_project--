@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import axios from 'axios';
 import TeacherDashboard from '../domains/teacher/pages/TeacherDashboard';
-import OfferingDetail from '../domains/teacher/components/OfferingDetail';
 import AdminDashboard from '../domains/admin/pages/AdminDashboard';
 import StudentCourseList from '../domains/student/pages/StudentCourseList';
 import ExperimentWorkspace from '../shared/workspace/ExperimentWorkspace';
@@ -221,20 +220,6 @@ function App() {
                     element={isLoggedIn ? <ExperimentWorkspace /> : <Navigate to="/login" replace />}
                 />
                 <Route
-                    path="/teacher/offering/:offeringId"
-                    element={
-                        !isLoggedIn ? (
-                            <Navigate to="/login" replace />
-                        ) : userRole === 'teacher' ? (
-                            <OfferingDetail username={username} userRole={userRole} onLogout={handleLogout} />
-                        ) : userRole === 'admin' ? (
-                            <Navigate to="/admin" replace />
-                        ) : (
-                            <Navigate to="/" replace />
-                        )
-                    }
-                />
-                <Route
                     path="/teacher/course/:courseId"
                     element={
                         isLoggedIn ? (
@@ -284,6 +269,22 @@ function App() {
                 />
                 <Route
                     path="/student/course/:offeringId"
+                    element={
+                        isLoggedIn ? (
+                            userRole === 'teacher' ? (
+                                <Navigate to="/teacher" replace />
+                            ) : userRole === 'admin' ? (
+                                <Navigate to="/admin" replace />
+                            ) : (
+                                <StudentCourseList username={username} onLogout={handleLogout} />
+                            )
+                        ) : (
+                            <Navigate to="/login" replace />
+                        )
+                    }
+                />
+                <Route
+                    path="/student"
                     element={
                         isLoggedIn ? (
                             userRole === 'teacher' ? (

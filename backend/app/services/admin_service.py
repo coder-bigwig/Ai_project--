@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import (
     ALLOWED_RESOURCE_EXTENSIONS,
     DEFAULT_ADMISSION_YEAR_OPTIONS,
-    DEFAULT_PASSWORD,
+    DEFAULT_STUDENT_PASSWORD,
+    DEFAULT_TEACHER_PASSWORD,
     DEFAULT_RESOURCE_ROLE_LIMITS,
 )
 from ..file_storage import (
@@ -547,7 +548,7 @@ class AdminService:
             }
         )
 
-        default_hash = self.main._hash_password(DEFAULT_PASSWORD)
+        default_hash = self.main._hash_password(DEFAULT_TEACHER_PASSWORD)
         auth_repo = AuthUserRepository(self.db)
         await auth_repo.upsert_by_email(
             {
@@ -859,7 +860,7 @@ class AdminService:
                     "admission_year": admission_year,
                     "organization": organization,
                     "phone": "",
-                    "password_hash": self.main._hash_password(DEFAULT_PASSWORD),
+                    "password_hash": self.main._hash_password(DEFAULT_STUDENT_PASSWORD),
                     "security_question": "",
                     "security_answer_hash": "",
                     "created_by": normalized_teacher,
@@ -871,7 +872,7 @@ class AdminService:
             )
 
         auth_repo = AuthUserRepository(self.db)
-        default_hash = self.main._hash_password(DEFAULT_PASSWORD)
+        default_hash = self.main._hash_password(DEFAULT_STUDENT_PASSWORD)
         for payload in success_students:
             await user_repo.upsert(payload)
             await auth_repo.upsert_by_email(
@@ -1000,7 +1001,7 @@ class AdminService:
         if not self._student_visible_to_teacher(student, normalized_teacher, role, class_owner_map):
             raise HTTPException(status_code=403, detail="不能操作其他教师的学生")
 
-        new_hash = self.main._hash_password(DEFAULT_PASSWORD)
+        new_hash = self.main._hash_password(DEFAULT_STUDENT_PASSWORD)
         student.password_hash = new_hash
         student.updated_at = datetime.now()
 

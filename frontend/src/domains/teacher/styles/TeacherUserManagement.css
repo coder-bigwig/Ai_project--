@@ -19,7 +19,7 @@
     background: #fff;
     color: #606266;
     padding: 6px 12px;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
 }
 
@@ -98,7 +98,7 @@
     gap: 6px;
     padding: 8px;
     border: 1px solid #e6ebf1;
-    border-radius: 10px;
+    border-radius: 12px;
     background: #fff;
     box-shadow: 0 10px 24px rgba(23, 33, 55, 0.12);
     z-index: 20;
@@ -128,7 +128,7 @@
 .class-import-input-row button {
     padding: 8px 12px;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     background: #409eff;
     color: #fff;
     cursor: pointer;
@@ -157,7 +157,7 @@
 .class-create-row input {
     padding: 8px 10px;
     border: 1px solid #dcdfe6;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 14px;
 }
 
@@ -171,7 +171,7 @@
 
 .user-table-wrap {
     border: 1px solid #ebeef5;
-    border-radius: 6px;
+    border-radius: 8px;
     overflow-x: auto;
 }
 
@@ -197,7 +197,7 @@
     margin-right: 8px;
     padding: 6px 10px;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     background: #ecf5ff;
     color: #409eff;
     cursor: pointer;
@@ -309,7 +309,7 @@
 
 .class-import-panel {
     border: 1px solid #dfe6f1;
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 14px 14px 12px;
     margin-bottom: 10px;
     background: #f5f7fb;
@@ -403,7 +403,7 @@
     padding: 10px 12px;
     background: #f8f9fb;
     border: 1px solid #e6ebf1;
-    border-radius: 6px;
+    border-radius: 8px;
 }
 
 .import-result p {

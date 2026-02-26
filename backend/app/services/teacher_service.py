@@ -10,7 +10,7 @@ from fastapi import File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import DEFAULT_ADMISSION_YEAR_OPTIONS, DEFAULT_PASSWORD
+from ..config import DEFAULT_ADMISSION_YEAR_OPTIONS, DEFAULT_STUDENT_PASSWORD
 from ..file_storage import remove_legacy_file
 from ..repositories import (
     AttachmentRepository,
@@ -172,12 +172,12 @@ class TeacherService:
 
         repo = PasswordHashRepository(self.db)
         current_row = await repo.get_by_username(teacher_username)
-        current_hash = current_row.password_hash if current_row else self.main._default_password_hash()
+        current_hash = current_row.password_hash if current_row else self.main._default_password_hash(username=teacher_username)
         if current_hash != self.main._hash_password(old_password):
             raise HTTPException(status_code=401, detail="旧密码错误")
 
         new_hash = self.main._hash_password(new_password)
-        if new_hash == self.main._default_password_hash():
+        if new_hash == self.main._default_password_hash(username=teacher_username):
             await repo.delete_by_username(teacher_username)
         else:
             await repo.upsert(
@@ -530,7 +530,7 @@ class TeacherService:
         errors = []
         sync_candidate_student_ids = set()
 
-        default_hash = self.main._hash_password(DEFAULT_PASSWORD)
+        default_hash = self.main._hash_password(DEFAULT_STUDENT_PASSWORD)
 
         for row_number, row in parsed_rows:
             student_id, real_name, class_name, organization, admission_year_raw = row
@@ -679,7 +679,7 @@ class TeacherService:
         if student is None or normalize_text(student.role).lower() != "student":
             raise HTTPException(status_code=404, detail="student account not found")
 
-        new_hash = self.main._hash_password(DEFAULT_PASSWORD)
+        new_hash = self.main._hash_password(DEFAULT_STUDENT_PASSWORD)
         student.password_hash = new_hash
         student.updated_at = datetime.now()
 

@@ -62,7 +62,7 @@ def _to_student_record(main, row):
         phone=row.phone or "",
         role="student",
         created_by=row.created_by or "",
-        password_hash=row.password_hash or main._hash_password(main.DEFAULT_PASSWORD),
+        password_hash=row.password_hash or main._default_password_hash(role="student"),
         security_question=row.security_question or "",
         security_answer_hash=row.security_answer_hash or "",
         created_at=row.created_at,

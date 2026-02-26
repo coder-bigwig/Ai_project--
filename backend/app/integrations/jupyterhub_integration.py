@@ -93,8 +93,9 @@ def _ensure_user_server_running(username: str) -> bool:
     if not _ensure_hub_user_exists(user):
         return False
 
+    spawn_timeout = max(15.0, float(JUPYTERHUB_REQUEST_TIMEOUT_SECONDS), float(JUPYTERHUB_START_TIMEOUT_SECONDS))
     try:
-        resp = _hub_request("POST", f"/hub/api/users/{quote(user)}/server")
+        resp = _hub_request("POST", f"/hub/api/users/{quote(user)}/server", timeout=spawn_timeout)
         # 201/202: started, 409: already running
         if resp.status_code not in {201, 202, 409}:
             # Some JupyterHub versions return 400 with a message when the server is already running.
@@ -112,6 +113,9 @@ def _ensure_user_server_running(username: str) -> bool:
             else:
                 print(f"JupyterHub spawn failed ({resp.status_code}): {resp.text[:200]}")
                 return False
+    except requests.ReadTimeout:
+        # Hub can take a while to return spawn responses; continue with state polling.
+        pass
     except requests.RequestException as exc:
         print(f"JupyterHub spawn error: {exc}")
         return False

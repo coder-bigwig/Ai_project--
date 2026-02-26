@@ -3,21 +3,11 @@ import axios from 'axios';
 import TeacherReview from './TeacherReview';
 import TeacherUserManagement from './TeacherUserManagement';
 import TeacherTeamManagement from './TeacherTeamManagement';
-import OfferingDetail from './OfferingDetail';
 import ResourceFileManagement from './ResourceFileManagement';
 import ProgressPanel from './ProgressPanel';
-import cover01 from '../../../shared/assets/system-covers/cover-01.svg';
-import cover02 from '../../../shared/assets/system-covers/cover-02.svg';
-import cover03 from '../../../shared/assets/system-covers/cover-03.svg';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const TEACHER_COURSE_RESUME_KEY = 'teacherCourseResumeId';
-const OFFERING_COVER_STORAGE_KEY = 'offeringSystemCoverMap';
-const SYSTEM_COVERS = [
-  { id: 'system-01', label: '\u7cfb\u7edf\u5c01\u9762 1', src: cover01 },
-  { id: 'system-02', label: '\u7cfb\u7edf\u5c01\u9762 2', src: cover02 },
-  { id: 'system-03', label: '\u7cfb\u7edf\u5c01\u9762 3', src: cover03 },
-];
 
 function formatDate(v) {
   if (!v) return '-';
@@ -77,26 +67,6 @@ function normalizeStringArray(values) {
   return result;
 }
 
-function loadCoverSelectionMap() {
-  if (typeof window === 'undefined') return {};
-  try {
-    const parsed = JSON.parse(localStorage.getItem(OFFERING_COVER_STORAGE_KEY) || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (error) {
-    return {};
-  }
-}
-
-function hashString(value) {
-  const text = String(value || '');
-  let hash = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    hash = ((hash << 5) - hash) + text.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
 function CourseWorkspacePanel({
   username,
   userRole,
@@ -139,7 +109,6 @@ function CourseWorkspacePanel({
   const [recycleRows, setRecycleRows] = useState([]);
   const [activeManageTab, setActiveManageTab] = useState('class-management');
   const [allOfferings, setAllOfferings] = useState([]);
-  const [coverSelectionMap, setCoverSelectionMap] = useState(() => loadCoverSelectionMap());
   const [selectedCourseStudentCount, setSelectedCourseStudentCount] = useState(0);
   const [selectedCourseClassNames, setSelectedCourseClassNames] = useState([]);
   const [summaryRefreshTick, setSummaryRefreshTick] = useState(0);
@@ -392,47 +361,6 @@ function CourseWorkspacePanel({
   }, [summaryRefreshTick, username]);
 
   useEffect(() => {
-    setCoverSelectionMap(loadCoverSelectionMap());
-  }, [viewMode]);
-
-  const latestOfferingByCourseId = useMemo(() => {
-    const mapping = {};
-    (allOfferings || []).forEach((item) => {
-      const courseId = String(item?.template_course_id || item?.course_id || '').trim();
-      if (!courseId) return;
-      const current = mapping[courseId];
-      const currentTs = new Date(current?.updated_at || current?.created_at || 0).getTime();
-      const candidateTs = new Date(item?.updated_at || item?.created_at || 0).getTime();
-      if (!current || candidateTs >= currentTs) {
-        mapping[courseId] = item;
-      }
-    });
-    return mapping;
-  }, [allOfferings]);
-
-  const resolveCourseSystemCover = useCallback((course) => {
-    const courseId = String(course?.id || '').trim();
-    const offering = latestOfferingByCourseId[courseId];
-    const offeringId = String(offering?.offering_id || '').trim();
-    const selectedId = offeringId ? String(coverSelectionMap?.[offeringId] || '').trim() : '';
-    const selectedCover = SYSTEM_COVERS.find((item) => item.id === selectedId);
-    if (selectedCover) return selectedCover;
-    const seed = String(offeringId || offering?.offering_code || courseId || 'system-cover-seed');
-    const index = hashString(seed) % SYSTEM_COVERS.length;
-    return SYSTEM_COVERS[index];
-  }, [coverSelectionMap, latestOfferingByCourseId]);
-
-  const renderCourseCover = useCallback((course) => {
-    const cover = resolveCourseSystemCover(course);
-    return (
-      <div className="teacher-course-home-cover">
-        <img src={cover.src} alt={cover.label} />
-        <span>{'\u6559'}</span>
-      </div>
-    );
-  }, [resolveCourseSystemCover]);
-
-  useEffect(() => {
     setRecycleRows([]);
   }, [selectedCourseId]);
 
@@ -653,23 +581,25 @@ function CourseWorkspacePanel({
           <div className="teacher-lab-empty">{"\u6682\u65e0\u8bfe\u7a0b\uff0c\u8bf7\u5148\u521b\u5efa\u8bfe\u7a0b\u3002"}</div>
         ) : (
           <div className="teacher-course-home-grid">
-            {filteredHomeCourses.map((course) => (
-              <button
-                key={course.id}
-                type="button"
-                className="teacher-course-home-card"
-                onClick={() => {
-                  if (typeof onOpenCourse === 'function') {
-                    onOpenCourse(course);
-                    return;
-                  }
-                }}
-              >
-                {renderCourseCover(course)}
-                <strong>{course?.name || '\u6211\u7684\u8bfe'}</strong>
-                <span>{course?.created_by || username || '-'}</span>
-              </button>
-            ))}
+            {filteredHomeCourses.map((course) => {
+              const summaryText = String(course?.description || '').trim() || `\u6388\u8bfe\u6559\u5e08\uff1a${course?.created_by || username || '-'}`;
+              return (
+                <button
+                  key={course.id}
+                  type="button"
+                  className="teacher-course-home-card"
+                  onClick={() => {
+                    if (typeof onOpenCourse === 'function') {
+                      onOpenCourse(course);
+                      return;
+                    }
+                  }}
+                >
+                  <strong>{course?.name || '\u6211\u7684\u8bfe'}</strong>
+                  <span>{summaryText}</span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -864,7 +794,6 @@ function CourseWorkspacePanel({
     { key: 'teacher-team', label: '\u6559\u5e08\u56e2\u961f\u7ba1\u7406', enabled: true },
     { key: 'student-progress', label: '\u5b66\u751f\u8fdb\u5ea6', enabled: true },
     { key: 'submission-review', label: '\u63d0\u4ea4\u5ba1\u9605', enabled: true },
-    { key: 'course-management', label: '\u8bfe\u7a0b\u7ba1\u7406', enabled: true },
   ];
 
   const renderClassManagement = () => (
@@ -874,18 +803,6 @@ function CourseWorkspacePanel({
         userRole={userRole}
         courseId={selectedCourse?.id || ''}
         onRosterChanged={refreshCourseSummary}
-      />
-    </div>
-  );
-
-  const renderCourseManagement = () => (
-    <div className="teacher-course-manage-content">
-      <OfferingDetail
-        username={username}
-        courseId={selectedCourse?.id || ''}
-        courseName={selectedCourse?.name || ''}
-        courseTeacher={selectedCourse?.created_by || username || ''}
-        embedded
       />
     </div>
   );
@@ -948,8 +865,7 @@ function CourseWorkspacePanel({
       {activeManageTab === 'teacher-team' ? renderTeacherTeamManagement() : null}
       {activeManageTab === 'student-progress' ? renderProgressManagement() : null}
       {activeManageTab === 'submission-review' ? renderReviewManagement() : null}
-      {activeManageTab === 'course-management' ? renderCourseManagement() : null}
-      {activeManageTab !== 'class-management' && activeManageTab !== 'teacher-team' && activeManageTab !== 'student-progress' && activeManageTab !== 'submission-review' && activeManageTab !== 'course-management' ? (
+      {activeManageTab !== 'class-management' && activeManageTab !== 'teacher-team' && activeManageTab !== 'student-progress' && activeManageTab !== 'submission-review' ? (
         <div className="teacher-course-empty-board">{'\u8be5\u529f\u80fd\u6b63\u5728\u5efa\u8bbe\u4e2d'}</div>
       ) : null}
     </div>
@@ -1344,7 +1260,6 @@ function CourseWorkspacePanel({
     <div className="teacher-course-detail-shell">
       <aside className="teacher-course-detail-sidebar">
         <button type="button" className="teacher-course-detail-cover" onClick={handleExitDetail}>
-          {renderCourseCover(selectedCourse)}
           <div className="teacher-course-detail-cover-links"><span>{'\u8fd4\u56de\u8bfe\u7a0b\u5e93'}</span></div>
         </button>
         <div className="teacher-course-detail-title">{selectedCourse?.name || '\u6211\u7684\u8bfe'}</div>

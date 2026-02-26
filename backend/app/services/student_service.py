@@ -36,7 +36,7 @@ class StudentService:
             phone=row.phone or "",
             role="student",
             created_by=row.created_by or "",
-            password_hash=row.password_hash or self.main._hash_password(self.main.DEFAULT_PASSWORD),
+            password_hash=row.password_hash or self.main._default_password_hash(role="student"),
             security_question=row.security_question or "",
             security_answer_hash=row.security_answer_hash or "",
             created_at=row.created_at,
@@ -201,4 +201,3 @@ class StudentService:
 
 def build_student_service(main_module, db: Optional[AsyncSession] = None) -> StudentService:
     return StudentService(main_module=main_module, db=db)
-

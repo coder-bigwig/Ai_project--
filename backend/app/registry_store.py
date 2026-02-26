@@ -445,19 +445,37 @@ def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-def _default_password_hash() -> str:
-    return _hash_password(DEFAULT_PASSWORD)
+def _default_password(role: str = "", username: str = "") -> str:
+    normalized_role = _normalize_text(role).lower()
+    if normalized_role == "admin":
+        return DEFAULT_ADMIN_PASSWORD
+    if normalized_role == "teacher":
+        return DEFAULT_TEACHER_PASSWORD
+    if normalized_role == "student":
+        return DEFAULT_STUDENT_PASSWORD
+
+    normalized_username = _normalize_text(username)
+    if normalized_username:
+        if is_admin(normalized_username):
+            return DEFAULT_ADMIN_PASSWORD
+        if is_teacher(normalized_username):
+            return DEFAULT_TEACHER_PASSWORD
+    return DEFAULT_STUDENT_PASSWORD
+
+
+def _default_password_hash(role: str = "", username: str = "") -> str:
+    return _hash_password(_default_password(role=role, username=username))
 
 
 def _get_account_password_hash(username: str) -> str:
     normalized = _normalize_text(username)
     if not normalized:
-        return _default_password_hash()
+        return _default_password_hash(role="teacher")
 
     saved_hash = _normalize_text(teacher_account_password_hashes_db.get(normalized)).lower()
     if saved_hash and PASSWORD_HASH_PATTERN.fullmatch(saved_hash):
         return saved_hash
-    return _default_password_hash()
+    return _default_password_hash(username=normalized)
 
 
 def _verify_account_password(username: str, password: str) -> bool:
@@ -1295,7 +1313,6 @@ def _student_to_dict(record: StudentRecord) -> dict:
 
 
 def _save_user_registry():
-    default_hash = _default_password_hash()
     account_password_hashes = {}
     for account, password_hash in teacher_account_password_hashes_db.items():
         normalized_account = _normalize_text(account)
@@ -1306,7 +1323,7 @@ def _save_user_registry():
             continue
         if not PASSWORD_HASH_PATTERN.fullmatch(normalized_hash):
             continue
-        if normalized_hash == default_hash:
+        if normalized_hash == _default_password_hash(username=normalized_account):
             continue
         account_password_hashes[normalized_account] = normalized_hash
 

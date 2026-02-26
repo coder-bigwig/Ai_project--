@@ -95,6 +95,7 @@ services:
       - ./jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
     environment:
       HUB_DB_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-experiment_manager}
       DOCKER_NOTEBOOK_IMAGE: training-lab:latest
       EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
 
@@ -192,5 +193,4 @@ volumes:
   grafana-data:
   course-materials:
   shared-datasets:
-
 

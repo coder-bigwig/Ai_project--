@@ -1,6 +1,10 @@
 .lab-page-shell {
     --brand-blue: #1d7fc3;
     --brand-blue-deep: #186da8;
+    --system-blue: var(--brand-blue);
+    --system-blue-dark: var(--brand-blue-deep);
+    --system-blue-rgb: 29, 127, 195;
+    --system-blue-dark-rgb: 24, 109, 168;
     --surface-bg: #edf3f8;
     --panel-bg: #ffffff;
     --line-soft: #d9e4ef;
@@ -305,68 +309,54 @@
 }
 
 .lab-course-home-card {
-    border: none;
-    background: transparent;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    background-color: #fff;
+    background:
+        radial-gradient(circle at 15% 10%, rgba(45, 120, 180, 0.18), rgba(45, 120, 180, 0) 55%),
+        linear-gradient(180deg, rgba(45, 120, 180, 0.12) 0%, rgba(255, 255, 255, 1) 55%);
     border-radius: 12px;
     text-align: left;
     cursor: pointer;
-    padding: 0;
+    padding: 14px 16px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-height: 114px;
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow 150ms ease, transform 150ms ease;
 }
 
 .lab-course-home-card:disabled {
     cursor: default;
-    opacity: 0.65;
+    opacity: 0.7;
 }
 
-.lab-course-home-cover {
-    width: 100%;
-    height: 160px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #3f7ad6 0%, #2c66be 100%);
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: flex-start;
-    padding: 12px;
-}
-
-.lab-course-home-cover img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    pointer-events: none;
-}
-
-.lab-course-home-cover span {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.2);
-    color: #fff;
-    display: grid;
-    place-items: center;
-    font-size: 22px;
-    font-weight: 700;
-    position: relative;
-    z-index: 1;
+.lab-course-home-card:not(:disabled):hover {
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.11);
+    transform: translateY(-2px);
 }
 
 .lab-course-home-card strong {
-    margin-top: 2px;
-    color: #1f2d3d;
-    font-size: 28px;
-    line-height: 1.15;
+    color: #0f172a;
+    font-size: 20px;
+    line-height: 1.3;
+    font-weight: 700;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .lab-course-home-card > span {
-    color: #8a99aa;
-    font-size: 16px;
-    line-height: 1.2;
+    color: rgba(15, 23, 42, 0.65);
+    font-size: 14px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .lab-course-leave-btn--inline {
@@ -404,97 +394,123 @@
 
 .lab-course-detail-shell {
     margin-top: 14px;
-    display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
-    min-height: 520px;
+    min-height: 680px;
     background: #fff;
     border: 1px solid #dce7f2;
     border-radius: 12px;
     overflow: hidden;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
 }
 
 .lab-course-detail-sidebar {
-    border-right: 1px solid #e3edf7;
+    background: #f6f9fd;
+    border-right: 1px solid #e1eaf3;
     padding: 12px;
-    background: #f9fcff;
 }
 
 .lab-course-detail-cover {
-    border: none;
-    background: transparent;
+    border: 1px solid var(--system-blue);
+    background: linear-gradient(135deg, rgba(var(--system-blue-rgb), 0.12) 0%, rgba(var(--system-blue-dark-rgb), 0.08) 100%);
+    border-radius: 12px;
+    min-height: 48px;
     width: 100%;
     text-align: left;
-    padding: 0;
+    padding: 10px 12px;
     cursor: pointer;
+    box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.06));
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.lab-course-detail-cover:hover {
+    border-color: var(--system-blue-dark);
+    background: linear-gradient(90deg, var(--system-blue) 0%, var(--system-blue-dark) 100%);
+    box-shadow: 0 6px 14px rgba(var(--system-blue-rgb), 0.22);
+    transform: translateY(-1px);
+}
+
+.lab-course-detail-cover:active {
+    border-color: var(--system-blue-dark);
+    background: var(--system-blue-dark);
+    transform: translateY(0);
 }
 
 .lab-course-detail-cover-links {
-    margin-top: 8px;
-    padding: 0 4px;
+    margin-top: 0;
+    padding: 0;
     display: flex;
     justify-content: space-between;
-    color: #5f81a3;
+    color: var(--system-blue);
     font-size: 12px;
+    transition: color 150ms ease;
+}
+
+.lab-course-detail-cover:hover .lab-course-detail-cover-links,
+.lab-course-detail-cover:active .lab-course-detail-cover-links {
+    color: #fff;
+}
+
+.lab-course-detail-cover-links span {
+    font-weight: 600;
 }
 
 .lab-course-detail-title {
-    margin-top: 10px;
-    font-size: 24px;
-    font-weight: 700;
-    color: #2d435a;
-    line-height: 1.3;
+    margin: 12px 20px 8px;
+    font-size: 36px;
+    color: #314659;
+    line-height: 1.2;
     word-break: break-word;
 }
 
 .lab-course-detail-menu {
-    margin-top: 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    margin-top: 6px;
 }
 
 .lab-course-detail-menu button {
+    width: 100%;
     border: none;
     background: transparent;
+    padding: 12px 18px;
     text-align: left;
-    border-radius: 8px;
-    padding: 9px 10px;
-    font-size: 16px;
-    color: #4f6278;
-    cursor: pointer;
+    color: #57697e;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 16px;
 }
 
 .lab-course-detail-menu button .dot {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    background: #c6d3e2;
+    background: #c6d6e6;
 }
 
 .lab-course-detail-menu button.active {
-    background: #eaf4ff;
-    color: #216cac;
+    background: #e8f2ff;
+    color: #2f7fc0;
     font-weight: 700;
 }
 
 .lab-course-detail-menu button.active .dot {
-    background: #2e8ad2;
+    background: #4f9de7;
 }
 
 .lab-course-detail-main {
-    padding: 14px;
-    background: #fff;
+    background: #f3f5f7;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .lab-course-pane {
     background: #fff;
-    border: 1px solid #e1ebf5;
-    border-radius: 10px;
+    border: 1px solid #e1eaf3;
+    border-radius: 12px;
     min-height: 100%;
-    padding: 14px;
+    padding: 16px;
 }
 
 .lab-course-pane-toolbar {
@@ -1245,11 +1261,11 @@
     }
 
     .lab-course-home-card strong {
-        font-size: 28px;
+        font-size: 20px;
     }
 
     .lab-course-home-card > span {
-        font-size: 16px;
+        font-size: 14px;
     }
 
 }
@@ -1359,11 +1375,11 @@
     }
 
     .lab-course-home-card strong {
-        font-size: 28px;
+        font-size: 20px;
     }
 
     .lab-course-home-card > span {
-        font-size: 16px;
+        font-size: 14px;
     }
 
 }

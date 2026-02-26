@@ -78,7 +78,7 @@ class SubmissionService:
             phone=row.phone or "",
             role="student",
             created_by=row.created_by or "",
-            password_hash=row.password_hash or self.main._hash_password(self.main.DEFAULT_PASSWORD),
+            password_hash=row.password_hash or self.main._default_password_hash(role="student"),
             security_question=row.security_question or "",
             security_answer_hash=row.security_answer_hash or "",
             created_at=row.created_at,
@@ -215,57 +215,60 @@ class SubmissionService:
         user_token_for_url = None
         if self.main._jupyterhub_enabled():
             try:
-                if self.main._ensure_user_server_running(student_id):
-                    user_token = self.main._create_short_lived_user_token(student_id)
-                    if user_token:
-                        user_token_for_url = user_token
-                        dir_resp = self.main._user_contents_request(
-                            student_id,
-                            user_token,
-                            "GET",
-                            "work",
-                            params={"content": 0},
-                        )
-                        if dir_resp.status_code == 404:
-                            self.main._user_contents_request(
-                                student_id,
-                                user_token,
-                                "PUT",
-                                "work",
-                                json={"type": "directory"},
-                            )
+                server_ready = self.main._ensure_user_server_running(student_id)
+                if not server_ready:
+                    print(f"JupyterHub server is not ready yet for {student_id}, continue with token URL fallback")
 
-                        exists_resp = self.main._user_contents_request(
+                user_token = self.main._create_short_lived_user_token(student_id)
+                if user_token:
+                    user_token_for_url = user_token
+                    dir_resp = self.main._user_contents_request(
+                        student_id,
+                        user_token,
+                        "GET",
+                        "work",
+                        params={"content": 0},
+                    )
+                    if dir_resp.status_code == 404:
+                        self.main._user_contents_request(
                             student_id,
                             user_token,
-                            "GET",
-                            notebook_relpath,
-                            params={"content": 0},
+                            "PUT",
+                            "work",
+                            json={"type": "directory"},
                         )
-                        if exists_resp.status_code == 404:
-                            notebook_json = None
-                            template_path = normalize_text(experiment.notebook_path or "")
-                            if template_path:
-                                tpl_resp = self.main._user_contents_request(
-                                    student_id,
-                                    user_token,
-                                    "GET",
-                                    template_path,
-                                    params={"content": 1},
-                                )
-                                if tpl_resp.status_code == 200:
-                                    tpl_payload = tpl_resp.json() or {}
-                                    if tpl_payload.get("type") == "notebook" and tpl_payload.get("content"):
-                                        notebook_json = tpl_payload.get("content")
-                            if notebook_json is None:
-                                notebook_json = self.main._empty_notebook_json()
-                            self.main._user_contents_request(
+
+                    exists_resp = self.main._user_contents_request(
+                        student_id,
+                        user_token,
+                        "GET",
+                        notebook_relpath,
+                        params={"content": 0},
+                    )
+                    if exists_resp.status_code == 404:
+                        notebook_json = None
+                        template_path = normalize_text(experiment.notebook_path or "")
+                        if template_path:
+                            tpl_resp = self.main._user_contents_request(
                                 student_id,
                                 user_token,
-                                "PUT",
-                                notebook_relpath,
-                                json={"type": "notebook", "format": "json", "content": notebook_json},
+                                "GET",
+                                template_path,
+                                params={"content": 1},
                             )
+                            if tpl_resp.status_code == 200:
+                                tpl_payload = tpl_resp.json() or {}
+                                if tpl_payload.get("type") == "notebook" and tpl_payload.get("content"):
+                                    notebook_json = tpl_payload.get("content")
+                        if notebook_json is None:
+                            notebook_json = self.main._empty_notebook_json()
+                        self.main._user_contents_request(
+                            student_id,
+                            user_token,
+                            "PUT",
+                            notebook_relpath,
+                            json={"type": "notebook", "format": "json", "content": notebook_json},
+                        )
             except Exception as exc:
                 print(f"JupyterHub integration error: {exc}")
 

@@ -20,8 +20,9 @@ RUN pip install --no-cache-dir \
 # AI assistant dependencies
 RUN pip install --no-cache-dir \
     openai \
-    langchain \
-    requests
+    requests \
+    jupyter-ai \
+    langchain-openai
 
 # CV/DL dependencies (CPU)
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
@@ -40,7 +41,8 @@ RUN pip install --no-cache-dir \
     sentencepiece
 
 ENV LANG=zh_CN.UTF-8 \
-    LC_ALL=zh_CN.UTF-8
+    LC_ALL=zh_CN.UTF-8 \
+    JUPYTER_ENV_VARS_TO_UNSET=""
 
 RUN mkdir -p /opt/conda/share/jupyter/lab/settings && \
     echo '{"@jupyterlab/translation-extension:plugin": {"locale": "zh_CN"}}' > /opt/conda/share/jupyter/lab/settings/overrides.json
@@ -123,5 +125,15 @@ for custom_dir in custom_dirs:
     (custom_dir / "custom.js").write_text(patch_js, encoding="utf-8")
     print(f"patched notebook custom scripts: {custom_dir}")
 PY
+
+USER root
+
+COPY scripts /opt/training/scripts
+COPY assets /opt/training/assets
+COPY jupyter/before-notebook.d/10-jupyter-ai-bootstrap.sh /usr/local/bin/before-notebook.d/10-jupyter-ai-bootstrap.sh
+
+RUN chmod +x /opt/training/scripts/jupyter_ai_bootstrap.sh /usr/local/bin/before-notebook.d/10-jupyter-ai-bootstrap.sh
+
+USER ${NB_UID}
 
 WORKDIR /home/jovyan/work

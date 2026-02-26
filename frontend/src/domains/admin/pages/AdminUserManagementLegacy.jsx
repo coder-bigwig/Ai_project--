@@ -3,6 +3,7 @@ import axios from 'axios';
 import '../../teacher/styles/TeacherUserManagement.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const DEFAULT_ACCOUNT_PASSWORD = 'Fit963';
 
 function formatDateTime(value) {
     if (!value) return '-';
@@ -265,7 +266,7 @@ function LegacyTeacherUserManagement({ username, userRole }) {
     };
 
     const handleResetPassword = async (studentId) => {
-        if (!window.confirm(`确认将 ${studentId} 的密码重置为 123456 吗？`)) return;
+        if (!window.confirm(`确认将 ${studentId} 的密码重置为 ${DEFAULT_ACCOUNT_PASSWORD} 吗？`)) return;
         try {
             await axios.post(`${API_BASE_URL}/api/admin/students/${studentId}/reset-password`, null, {
                 params: { teacher_username: username }
@@ -311,7 +312,7 @@ function LegacyTeacherUserManagement({ username, userRole }) {
             setNewTeacherRealName('');
             setShowTeacherModal(false);
             await loadTeachers();
-            alert('教师账号创建成功，初始密码为 123456');
+            alert(`教师账号创建成功，初始密码为 ${DEFAULT_ACCOUNT_PASSWORD}`);
         } catch (error) {
             alert(error.response?.data?.detail || '创建教师失败');
         }

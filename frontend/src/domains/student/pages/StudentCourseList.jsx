@@ -2,9 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { persistJupyterTokenFromUrl } from '../../../shared/jupyter/jupyterAuth';
-import cover01 from '../../../shared/assets/system-covers/cover-01.svg';
-import cover02 from '../../../shared/assets/system-covers/cover-02.svg';
-import cover03 from '../../../shared/assets/system-covers/cover-03.svg';
 import AttachmentPanel from '../components/AttachmentPanel';
 import StudentResourcePanel from '../components/StudentResourcePanel';
 import StudentProfilePanel from '../components/StudentProfilePanel';
@@ -15,11 +12,6 @@ const JUPYTERHUB_URL = process.env.REACT_APP_JUPYTERHUB_URL || '';
 const DEFAULT_JUPYTERHUB_URL = `${window.location.origin}/jupyter/hub/home`;
 const DEFAULT_JUPYTERHUB_HEALTH_URL = `${window.location.origin}/jupyter/hub/health`;
 const LEGACY_JUPYTERHUB_URL = `${window.location.protocol}//${window.location.hostname}:8003/jupyter/hub/home`;
-const SYSTEM_COVERS = [
-    { id: 'system-01', label: '\u7cfb\u7edf\u5c01\u9762 1', src: cover01 },
-    { id: 'system-02', label: '\u7cfb\u7edf\u5c01\u9762 2', src: cover02 },
-    { id: 'system-03', label: '\u7cfb\u7edf\u5c01\u9762 3', src: cover03 },
-];
 
 const TEXT = {
     platformTitle: '\u798f\u5dde\u7406\u5de5\u5b66\u9662AI\u7f16\u7a0b\u5b9e\u8df5\u6559\u5b66\u5e73\u53f0',
@@ -68,7 +60,6 @@ const TEXT = {
     offeringCodeLabel: '\u73ed\u7ea7\u5f00\u8bfe\u6807\u8bc6',
     courseCodeLabel: '\u8bfe\u7a0b\u7801',
     detailMenuBack: '\u8fd4\u56de\u8bfe\u7a0b\u5e93',
-    studentCoverMark: '\u5b66',
     noAssignments: '\u5f53\u524d\u8bfe\u7a0b\u6682\u65e0\u4f5c\u4e1a',
     joinCodeMetaPrefix: '\u8bfe\u7a0b\u7801\uff1a',
     uploadPdf: '\u5b9e\u9a8c\u62a5\u544a PDF\uff08\u53ef\u9009\uff09',
@@ -199,29 +190,6 @@ function getCourseIconMeta(course) {
         return { label: 'PY', themeClass: 'theme-python' };
     }
     return { label: 'LAB', themeClass: 'theme-generic' };
-}
-
-function hashString(value) {
-    const text = String(value || '');
-    let hash = 0;
-    for (let i = 0; i < text.length; i += 1) {
-        hash = ((hash << 5) - hash) + text.charCodeAt(i);
-        hash |= 0;
-    }
-    return Math.abs(hash);
-}
-
-function resolveCourseCover(item) {
-    const seed = String(
-        item?.offeringId
-        || item?.offeringCode
-        || item?.joinCode
-        || item?.templateCourseId
-        || item?.courseName
-        || ''
-    ).trim();
-    const index = hashString(seed || 'student-cover-seed') % SYSTEM_COVERS.length;
-    return SYSTEM_COVERS[index];
 }
 
 function progressStatusKey(status) {
@@ -685,7 +653,6 @@ function StudentCourseList({ username, onLogout }) {
         { key: 'assignments', label: TEXT.detailAssignments },
         { key: 'resources', label: TEXT.detailResources },
     ];
-    const selectedCourseCover = selectedCourse ? resolveCourseCover(selectedCourse) : null;
 
     return (
         <div className="lab-page-shell">
@@ -782,8 +749,8 @@ function StudentCourseList({ username, onLogout }) {
                                             ) : (
                                                 <div className="lab-course-home-grid">
                                                     {filteredGroupedCourses.map((courseGroup) => {
-                                                        const cover = resolveCourseCover(courseGroup);
                                                         const isActiveMember = String(courseGroup.memberStatus || '').toLowerCase() === 'active';
+                                                        const summaryText = courseGroup.description || `${TEXT.teacherPrefix}${courseGroup.teacherName}`;
                                                         return (
                                                             <button
                                                                 type="button"
@@ -796,12 +763,8 @@ function StudentCourseList({ username, onLogout }) {
                                                                     }
                                                                 }}
                                                             >
-                                                                <div className="lab-course-home-cover" aria-hidden>
-                                                                    <img src={cover.src} alt={cover.label} />
-                                                                    <span>{TEXT.studentCoverMark}</span>
-                                                                </div>
                                                                 <strong>{courseGroup.courseName}</strong>
-                                                                <span>{courseGroup.teacherName}</span>
+                                                                <span>{summaryText}</span>
                                                             </button>
                                                         );
                                                     })}
@@ -814,12 +777,8 @@ function StudentCourseList({ username, onLogout }) {
                                                 <button
                                                     type="button"
                                                     className="lab-course-detail-cover"
-                                                    onClick={() => navigate('/')}
+                                                    onClick={() => navigate('/student')}
                                                 >
-                                                    <div className="lab-course-home-cover">
-                                                        <img src={selectedCourseCover?.src} alt={selectedCourseCover?.label || 'course-cover'} />
-                                                        <span>{TEXT.studentCoverMark}</span>
-                                                    </div>
                                                     <div className="lab-course-detail-cover-links">
                                                         <span>{TEXT.detailMenuBack}</span>
                                                     </div>

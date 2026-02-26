@@ -33,8 +33,12 @@ def _env_int(name: str, default: int) -> int:
 TEACHER_ACCOUNTS = _parse_account_list(
     os.getenv("TEACHER_ACCOUNTS", "teacher_001,teacher_002,teacher_003,teacher_004,teacher_005")
 )
-ADMIN_ACCOUNTS = _parse_account_list(os.getenv("ADMIN_ACCOUNTS", "admin"))
-DEFAULT_PASSWORD = "123456"
+ADMIN_ACCOUNTS = _parse_account_list(os.getenv("ADMIN_ACCOUNTS", "platform_root"))
+DEFAULT_STUDENT_PASSWORD = "Fit963"
+DEFAULT_TEACHER_PASSWORD = "Fit963"
+DEFAULT_ADMIN_PASSWORD = "Fit852@"
+# Backward compatibility alias: defaults to student/teacher password.
+DEFAULT_PASSWORD = DEFAULT_STUDENT_PASSWORD
 UPLOAD_DIR = "/app/uploads"
 SEED_MARKER_FILE = os.path.join(UPLOAD_DIR, ".seed_defaults_v1")  # legacy filename (kept for backward compat)
 TEXT_PREVIEW_CHAR_LIMIT = 20000

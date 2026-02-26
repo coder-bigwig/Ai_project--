@@ -34,7 +34,7 @@ c.JupyterHub.authenticator_class = DummyAuthenticator
 dummy_password = os.environ.get("DUMMY_PASSWORD")
 if dummy_password:
     c.DummyAuthenticator.password = dummy_password
-admin_accounts = set(_parse_accounts(os.environ.get("ADMIN_ACCOUNTS"), "admin"))
+admin_accounts = set(_parse_accounts(os.environ.get("ADMIN_ACCOUNTS"), "platform_root"))
 admin_accounts.update({"teacher1"})  # backward compatible legacy account
 c.Authenticator.admin_users = admin_accounts
 c.JupyterHub.admin_access = True
@@ -104,6 +104,11 @@ default_role_limits = {
     "student": {"cpu_limit": 2.0, "memory_limit": "8G", "storage_limit": "2G"},
     "teacher": {"cpu_limit": 2.0, "memory_limit": "8G", "storage_limit": "2G"},
     "admin": {"cpu_limit": 4.0, "memory_limit": "8G", "storage_limit": "20G"},
+}
+default_ai_shared_config = {
+    "api_key": "",
+    "base_url": "https://api.deepseek.com",
+    "chat_model": "deepseek-chat",
 }
 _SIZE_LIMIT_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?b?)?\s*$", re.IGNORECASE)
 
@@ -193,24 +198,29 @@ def _infer_role(username: str) -> str:
     return "student"
 
 
-def _load_resource_policy():
-    payload = {"defaults": dict(default_role_limits), "overrides": {}}
-    if not experiment_manager_db_url:
-        return payload
+def _load_app_kv_payload(key: str):
+    if not experiment_manager_db_url or not key:
+        return {}
 
     try:
         with psycopg2.connect(experiment_manager_db_url) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    f'SELECT value_json FROM \"{experiment_manager_schema}\".\"app_kv_store\" WHERE key = %s',
-                    ("resource_policy",),
+                    f'SELECT value_json FROM "{experiment_manager_schema}"."app_kv_store" WHERE key = %s',
+                    (key,),
                 )
                 row = cursor.fetchone()
                 data = row[0] if row else {}
                 if isinstance(data, dict):
-                    payload.update(data)
+                    return data
     except Exception as exc:
-        print(f"[resource-policy] failed to load policy from postgres: {exc}")
+        print(f"[app-kv] failed to load key {key!r} from postgres: {exc}")
+    return {}
+
+
+def _load_resource_policy():
+    payload = {"defaults": dict(default_role_limits), "overrides": {}}
+    payload.update(_load_app_kv_payload("resource_policy"))
     return payload
 
 
@@ -225,6 +235,31 @@ def _effective_quota(username: str):
         if isinstance(custom, dict):
             return _normalize_quota(custom, role)
     return base
+
+
+def _normalize_ai_shared_config(raw):
+    source = raw if isinstance(raw, dict) else {}
+
+    api_key = str(source.get("api_key") or "").strip()[:512]
+    base_url = str(source.get("base_url") or "").strip().rstrip("/")
+    chat_model = str(source.get("chat_model") or "").strip()
+
+    if not base_url:
+        base_url = default_ai_shared_config["base_url"]
+    if not chat_model:
+        chat_model = default_ai_shared_config["chat_model"]
+
+    return {
+        "api_key": api_key,
+        "base_url": base_url,
+        "chat_model": chat_model[:120],
+    }
+
+
+def _load_ai_shared_config():
+    payload = dict(default_ai_shared_config)
+    payload.update(_normalize_ai_shared_config(_load_app_kv_payload("ai_shared_config")))
+    return payload
 
 
 async def _apply_user_resource_limits(spawner):
@@ -248,6 +283,36 @@ async def _apply_user_resource_limits(spawner):
     environment["TRAINING_CPU_LIMIT"] = str(quota["cpu_limit"])
     environment["TRAINING_MEMORY_LIMIT"] = quota["memory_limit"]
     environment["TRAINING_STORAGE_LIMIT"] = quota["storage_limit"]
+
+    # Sync Jupyter AI runtime config from teacher-side shared AI settings.
+    ai_shared_config = _load_ai_shared_config()
+    ai_api_key = str(ai_shared_config.get("api_key") or "").strip()
+    ai_base_url = str(ai_shared_config.get("base_url") or "").strip().rstrip("/")
+    ai_chat_model = str(ai_shared_config.get("chat_model") or "").strip()
+
+    if ai_api_key:
+        environment["OPENAI_API_KEY"] = ai_api_key
+        environment["JAI_API_KEY"] = ai_api_key
+    else:
+        environment.pop("OPENAI_API_KEY", None)
+        environment.pop("JAI_API_KEY", None)
+
+    if ai_base_url:
+        environment["OPENAI_BASE_URL"] = ai_base_url
+        environment["OPENAI_API_BASE"] = ai_base_url
+        environment["JAI_BASE_URL"] = ai_base_url
+    else:
+        environment.pop("OPENAI_BASE_URL", None)
+        environment.pop("OPENAI_API_BASE", None)
+        environment.pop("JAI_BASE_URL", None)
+
+    if ai_chat_model:
+        environment["JAI_DEFAULT_MODEL"] = ai_chat_model
+    else:
+        environment.pop("JAI_DEFAULT_MODEL", None)
+    environment["JAI_PROVIDER"] = "openai"
+    environment["TRAINING_AI_CONFIG_SYNCED"] = "1"
+
     spawner.environment = environment
 
 c.JupyterHub.spawner_class = DockerSpawner
@@ -326,4 +391,3 @@ c.JupyterHub.tornado_settings = {
     # Respect X-Forwarded-* headers when running behind Nginx / TLS termination.
     "xheaders": True,
 }
-
