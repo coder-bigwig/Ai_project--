@@ -1,8 +1,18 @@
 .user-management {
+    color: #303133;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.management-module-card {
+    border: 1px solid #e6ebf1;
+    border-radius: 12px;
     background: #fff;
     padding: 24px;
-    border-radius: 8px;
-    color: #303133;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 
 .user-role-switch {
@@ -38,72 +48,99 @@
     font-size: 12px;
 }
 
-.user-management-toolbar {
+.module-title-row {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
-    gap: 12px;
+    justify-content: space-between;
+    gap: 10px;
 }
 
-.user-management-toolbar h2 {
+.module-title-row h3 {
     margin: 0;
     font-size: 18px;
-    color: #303133;
+    font-weight: 700;
+    color: #1f2f46;
 }
 
-.course-offering-panel {
-    border: 1px solid #e6ebf1;
-    border-radius: 8px;
-    padding: 12px;
-    margin-bottom: 16px;
-    background: #f9fbff;
-}
-
-.course-offering-head {
+.module-toolbar {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 10px;
-}
-
-.course-offering-head strong {
-    color: #303133;
-}
-
-.course-offering-head span {
-    color: #606266;
-    font-size: 13px;
-}
-
-.user-management-actions {
-    display: flex;
-    gap: 8px;
+    justify-content: flex-start;
+    gap: 12px;
     flex-wrap: wrap;
 }
 
-.add-class-trigger {
+.student-module-toolbar {
+    align-items: flex-start;
+}
+
+.student-filter-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 520px;
+    flex-wrap: wrap;
+}
+
+.student-filter-group input,
+.student-filter-group select,
+.class-create-row input {
+    height: 36px;
+    padding: 8px 10px;
+    border: 1px solid #dcdfe6;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.student-filter-group input {
+    min-width: 240px;
+}
+
+.student-filter-group select {
+    min-width: 170px;
+}
+
+.module-toolbar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.menu-trigger {
     position: relative;
     display: inline-flex;
 }
 
+.add-class-trigger {
+    z-index: 2;
+}
+
+.module-dropdown,
 .add-class-dropdown {
     position: absolute;
     top: calc(100% + 8px);
-    left: 0;
-    min-width: 150px;
+    right: 0;
+    min-width: 170px;
     display: flex;
     flex-direction: column;
     gap: 6px;
     padding: 8px;
-    border: 1px solid #e6ebf1;
+    border: 1px solid #dce5f0;
     border-radius: 12px;
     background: #fff;
     box-shadow: 0 10px 24px rgba(23, 33, 55, 0.12);
     z-index: 20;
 }
 
+.add-class-dropdown {
+    right: auto;
+    left: 0;
+}
+
+.module-dropdown button,
 .add-class-trigger .add-class-dropdown button {
     width: 100%;
     text-align: left;
@@ -114,64 +151,72 @@
     padding: 10px 12px;
 }
 
+.module-dropdown button.danger-item {
+    color: #d43838;
+    border-color: #f8d1d1;
+    background: #fff5f5;
+}
+
+.module-dropdown button:disabled {
+    background: #f5f7fa;
+    color: #9ca3af;
+    border-color: #e5e7eb;
+    cursor: not-allowed;
+}
+
+.module-dropdown button:hover:not(:disabled),
 .add-class-trigger .add-class-dropdown button:hover {
     background: #f7fbff;
     color: #2f78df;
 }
 
-.user-management-actions button,
-.user-filters button,
+.module-dropdown button.danger-item:hover:not(:disabled) {
+    background: #feecec;
+    color: #c53030;
+}
+
 .user-pagination button,
 .user-modal-actions button,
 .class-create-row button,
 .class-import-template-actions button,
-.class-import-input-row button {
+.class-import-input-row button,
+.primary-btn,
+.secondary-btn {
     padding: 8px 12px;
-    border: none;
-    border-radius: 6px;
+    border-radius: 8px;
+    border: 1px solid transparent;
     background: #409eff;
     color: #fff;
     cursor: pointer;
+    font-size: 14px;
 }
 
-.user-management-actions button:hover,
-.user-filters button:hover,
+.primary-btn {
+    border-color: #409eff;
+}
+
+.secondary-btn {
+    border-color: #d3dce6;
+    background: #fff;
+    color: #334155;
+}
+
 .user-pagination button:hover,
 .user-modal-actions button:hover,
 .class-create-row button:hover,
 .class-import-template-actions button:hover,
-.class-import-input-row button:hover {
+.class-import-input-row button:hover,
+.primary-btn:hover {
     background: #66b1ff;
 }
 
-.user-filters {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-.user-filters input,
-.user-filters select,
-.class-create-row input {
-    padding: 8px 10px;
-    border: 1px solid #dcdfe6;
-    border-radius: 6px;
-    font-size: 14px;
-}
-
-.user-filters input {
-    min-width: 220px;
-}
-
-.user-filters select {
-    min-width: 180px;
+.secondary-btn:hover {
+    background: #f8fafc;
 }
 
 .user-table-wrap {
     border: 1px solid #ebeef5;
-    border-radius: 8px;
+    border-radius: 10px;
     overflow-x: auto;
 }
 
@@ -183,9 +228,10 @@
 .user-table th,
 .user-table td {
     border-bottom: 1px solid #ebeef5;
-    padding: 10px 12px;
+    padding: 12px 14px;
     font-size: 14px;
     text-align: left;
+    line-height: 1.6;
 }
 
 .user-table th {
@@ -195,6 +241,7 @@
 
 .user-table td button {
     margin-right: 8px;
+    margin-bottom: 6px;
     padding: 6px 10px;
     border: none;
     border-radius: 6px;
@@ -223,13 +270,43 @@
     justify-content: flex-end;
     align-items: center;
     gap: 10px;
-    margin-top: 14px;
+    margin-top: 4px;
     color: #606266;
 }
 
-.user-pagination button:disabled {
+.user-pagination button:disabled,
+.user-modal-actions button:disabled,
+.class-create-row button:disabled,
+.class-import-template-actions button:disabled,
+.class-import-input-row button:disabled,
+.primary-btn:disabled,
+.secondary-btn:disabled {
     background: #c0c4cc;
+    border-color: #c0c4cc;
+    color: #fff;
     cursor: not-allowed;
+}
+
+@media (max-width: 1100px) {
+    .student-filter-group {
+        flex: 1 1 100%;
+    }
+
+    .module-toolbar-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+
+@media (max-width: 768px) {
+    .management-module-card {
+        padding: 20px;
+    }
+
+    .student-filter-group input,
+    .student-filter-group select {
+        min-width: 100%;
+    }
 }
 
 .user-modal-overlay {

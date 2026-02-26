@@ -136,13 +136,15 @@
     grid-template-columns: minmax(0, 1fr);
 }
 
-.lab-sidebar {
+.lab-sidebar,
+.lab-page-shell .teacher-lab-sidebar {
     border-right: 1px solid var(--line-soft);
     background: #f7fbff;
     padding: 14px 0;
 }
 
-.lab-sidebar-title {
+.lab-sidebar-title,
+.lab-page-shell .teacher-lab-sidebar-title {
     font-size: 12px;
     color: #7f91a5;
     letter-spacing: 1.4px;
@@ -151,7 +153,8 @@
     margin-bottom: 12px;
 }
 
-.lab-menu-item {
+.lab-menu-item,
+.lab-page-shell .teacher-lab-menu-item {
     width: 100%;
     display: flex;
     align-items: center;
@@ -166,18 +169,21 @@
     transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-.lab-menu-item.active {
+.lab-menu-item.active,
+.lab-page-shell .teacher-lab-menu-item.active {
     background: var(--menu-active-bg);
     color: var(--menu-active-text);
     border-right: 3px solid var(--accent);
 }
 
-.lab-menu-item:not(.active):hover {
+.lab-menu-item:not(.active):hover,
+.lab-page-shell .teacher-lab-menu-item:not(.active):hover {
     background: #eef6fd;
     color: #2a78ad;
 }
 
-.lab-menu-icon {
+.lab-menu-icon,
+.lab-page-shell .teacher-lab-menu-icon {
     width: 30px;
     height: 30px;
     border-radius: 8px;
@@ -188,24 +194,28 @@
     flex-shrink: 0;
 }
 
-.lab-menu-icon svg {
+.lab-menu-icon svg,
+.lab-page-shell .teacher-lab-menu-icon svg {
     width: 18px;
     height: 18px;
 }
 
-.lab-menu-text {
+.lab-menu-text,
+.lab-page-shell .teacher-lab-menu-text {
     display: flex;
     flex-direction: column;
     gap: 2px;
 }
 
-.lab-menu-text strong {
+.lab-menu-text strong,
+.lab-page-shell .teacher-lab-menu-text strong {
     font-size: 16px;
     font-weight: 700;
     line-height: 1.1;
 }
 
-.lab-menu-text small {
+.lab-menu-text small,
+.lab-page-shell .teacher-lab-menu-text small {
     font-size: 12px;
     color: #7392ae;
     line-height: 1.2;
@@ -213,6 +223,10 @@
 
 .lab-content-panel {
     padding: 14px 18px 22px;
+}
+
+.lab-content-panel.course-detail-content {
+    padding: 0;
 }
 
 .lab-breadcrumb {
@@ -393,124 +407,89 @@
 }
 
 .lab-course-detail-shell {
-    margin-top: 14px;
-    min-height: 680px;
-    background: #fff;
-    border: 1px solid #dce7f2;
-    border-radius: 12px;
-    overflow: hidden;
+    min-height: calc(100vh - 76px);
+    background: transparent;
     display: grid;
     grid-template-columns: 220px minmax(0, 1fr);
 }
 
-.lab-course-detail-sidebar {
-    background: #f6f9fd;
-    border-right: 1px solid #e1eaf3;
-    padding: 12px;
+.lab-course-detail-shell > .teacher-lab-sidebar {
+    min-height: calc(100vh - 76px);
 }
 
-.lab-course-detail-cover {
-    border: 1px solid var(--system-blue);
-    background: linear-gradient(135deg, rgba(var(--system-blue-rgb), 0.12) 0%, rgba(var(--system-blue-dark-rgb), 0.08) 100%);
-    border-radius: 12px;
-    min-height: 48px;
+.student-course-sidebar-header {
+    padding: 10px 16px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.student-course-detail-cover {
     width: 100%;
+    border: 1px solid #cfe1f2;
+    background: #f1f8ff;
+    border-radius: 9px;
+    min-height: 40px;
     text-align: left;
-    padding: 10px 12px;
+    padding: 0 18px;
     cursor: pointer;
-    box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.06));
-    transition: background 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+    display: inline-flex;
+    align-items: center;
+    box-shadow: none;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
-.lab-course-detail-cover:hover {
-    border-color: var(--system-blue-dark);
-    background: linear-gradient(90deg, var(--system-blue) 0%, var(--system-blue-dark) 100%);
-    box-shadow: 0 6px 14px rgba(var(--system-blue-rgb), 0.22);
-    transform: translateY(-1px);
+.student-course-detail-cover:hover {
+    border-color: #a8cde9;
+    background: #e8f3ff;
 }
 
-.lab-course-detail-cover:active {
-    border-color: var(--system-blue-dark);
-    background: var(--system-blue-dark);
-    transform: translateY(0);
+.student-course-detail-cover:active {
+    border-color: #9fc5e3;
+    background: #dfedfb;
 }
 
-.lab-course-detail-cover-links {
+.student-course-detail-cover-links {
     margin-top: 0;
     padding: 0;
-    display: flex;
-    justify-content: space-between;
-    color: var(--system-blue);
-    font-size: 12px;
-    transition: color 150ms ease;
+    color: #2f7fc0;
+    font-size: 16px;
+    line-height: 1;
 }
 
-.lab-course-detail-cover:hover .lab-course-detail-cover-links,
-.lab-course-detail-cover:active .lab-course-detail-cover-links {
-    color: #fff;
-}
-
-.lab-course-detail-cover-links span {
+.student-course-detail-cover-links span {
     font-weight: 600;
 }
 
-.lab-course-detail-title {
-    margin: 12px 20px 8px;
-    font-size: 36px;
-    color: #314659;
-    line-height: 1.2;
-    word-break: break-word;
-}
-
-.lab-course-detail-menu {
-    margin-top: 6px;
-}
-
-.lab-course-detail-menu button {
-    width: 100%;
-    border: none;
-    background: transparent;
-    padding: 12px 18px;
-    text-align: left;
-    color: #57697e;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    font-size: 16px;
-}
-
-.lab-course-detail-menu button .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #c6d6e6;
-}
-
-.lab-course-detail-menu button.active {
-    background: #e8f2ff;
-    color: #2f7fc0;
-    font-weight: 700;
-}
-
-.lab-course-detail-menu button.active .dot {
-    background: #4f9de7;
-}
-
 .lab-course-detail-main {
-    background: #f3f5f7;
-    padding: 16px;
+    background: transparent;
+    min-height: calc(100vh - 76px);
+    width: 100%;
+    max-width: none;
+    padding: 16px 20px 20px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 18px;
+}
+
+.lab-course-detail-main.course-page {
+    --course-page-gap: 18px;
+    --course-card-radius: 14px;
+    --course-card-padding: 22px;
+    --course-card-border: #dfe8f2;
+    --course-card-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
+    --course-btn-height: 36px;
+    --course-btn-radius: 9px;
+    --course-btn-font-size: 14px;
 }
 
 .lab-course-pane {
     background: #fff;
-    border: 1px solid #e1eaf3;
-    border-radius: 12px;
+    border: 1px solid var(--course-card-border, #dfe8f2);
+    border-radius: var(--course-card-radius, 14px);
     min-height: 100%;
-    padding: 16px;
+    padding: var(--course-card-padding, 22px);
+    box-shadow: var(--course-card-shadow, 0 6px 16px rgba(15, 23, 42, 0.05));
 }
 
 .lab-course-pane-toolbar {
@@ -1275,23 +1254,27 @@
         grid-template-columns: 1fr;
     }
 
-    .lab-sidebar {
+    .lab-sidebar,
+    .lab-page-shell .teacher-lab-sidebar {
         border-right: none;
         border-bottom: 1px solid var(--line-soft);
         padding: 10px 12px;
     }
 
-    .lab-sidebar-title {
+    .lab-sidebar-title,
+    .lab-page-shell .teacher-lab-sidebar-title {
         display: none;
     }
 
-    .lab-menu-item {
+    .lab-menu-item,
+    .lab-page-shell .teacher-lab-menu-item {
         max-width: 180px;
         border-radius: 10px;
         border-right: none;
     }
 
-    .lab-menu-item.active {
+    .lab-menu-item.active,
+    .lab-page-shell .teacher-lab-menu-item.active {
         border-right: none;
     }
 
@@ -1316,9 +1299,14 @@
         grid-template-columns: 1fr;
     }
 
-    .lab-course-detail-sidebar {
+    .lab-course-detail-shell > .teacher-lab-sidebar {
         border-right: none;
         border-bottom: 1px solid #e3edf7;
+    }
+
+    .lab-course-detail-main.course-page {
+        padding: 12px 12px 16px;
+        gap: 16px;
     }
 
     .lab-course-pane-toolbar {

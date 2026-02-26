@@ -94,7 +94,7 @@ function getPdfBadgeStatus(pdfList) {
     return '未查看';
 }
 
-function TeacherReview({ username, submissions, loading, onGrade }) {
+function TeacherReview({ username, submissions, loading, onGrade, onRefresh }) {
     const [selectedSubmission, setSelectedSubmission] = useState(null);
 
     if (loading) return <div className="loading">加载中...</div>;
@@ -103,9 +103,9 @@ function TeacherReview({ username, submissions, loading, onGrade }) {
         <div className="submission-review">
             <div className="section-header">
                 <h2>提交审阅</h2>
-                <div className="refresh-btn-wrapper" style={{ float: 'right' }}>
-                    {/* Optional: Add a refresh button here if needed */}
-                </div>
+                <button type="button" className="teacher-course-plain-btn" onClick={onRefresh}>
+                    刷新数据
+                </button>
             </div>
 
             <div className="experiments-table">

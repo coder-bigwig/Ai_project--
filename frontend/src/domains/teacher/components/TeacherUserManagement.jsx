@@ -87,6 +87,8 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
     const [creatingClass, setCreatingClass] = useState(false);
     const [qrModal, setQrModal] = useState({ open: false, item: null });
     const addClassMenuRef = useRef(null);
+    const studentMoreMenuRef = useRef(null);
+    const [showStudentMoreMenu, setShowStudentMoreMenu] = useState(false);
     const [classForm, setClassForm] = useState({
         class_name: '',
         term: '',
@@ -204,7 +206,7 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
             .map((name) => ({ value: name, label: name }));
     }, [classes, offerings, students]);
 
-    // Close the add-class menu on outside click or Escape for predictable popover behavior.
+    // Close all top-level dropdown menus on outside click or Escape.
     useEffect(() => {
         loadStudents();
         loadClassAndYearOptions();
@@ -212,15 +214,22 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
     }, [loadStudents, loadClassAndYearOptions, refreshClassPanel]);
 
     useEffect(() => {
-        if (!showAddClassModeModal) return undefined;
+        const hasOpenMenu = showAddClassModeModal || showStudentMoreMenu;
+        if (!hasOpenMenu) return undefined;
 
         const handleDocumentMouseDown = (event) => {
             if (addClassMenuRef.current && !addClassMenuRef.current.contains(event.target)) {
                 setShowAddClassModeModal(false);
             }
+            if (studentMoreMenuRef.current && !studentMoreMenuRef.current.contains(event.target)) {
+                setShowStudentMoreMenu(false);
+            }
         };
         const handleDocumentKeyDown = (event) => {
-            if (event.key === 'Escape') setShowAddClassModeModal(false);
+            if (event.key === 'Escape') {
+                setShowAddClassModeModal(false);
+                setShowStudentMoreMenu(false);
+            }
         };
 
         document.addEventListener('mousedown', handleDocumentMouseDown);
@@ -229,7 +238,7 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
             document.removeEventListener('mousedown', handleDocumentMouseDown);
             document.removeEventListener('keydown', handleDocumentKeyDown);
         };
-    }, [showAddClassModeModal]);
+    }, [showAddClassModeModal, showStudentMoreMenu]);
 
     const handleSearch = () => loadStudents({
         targetPage: 1,
@@ -712,69 +721,102 @@ function TeacherUserManagement({ username, courseId = '', onRosterChanged }) {
         notifyRosterChanged();
     }, [autoCreateOfferingsForClasses, notifyRosterChanged, refreshClassPanel]);
 
+    const openStudentImportModal = () => {
+        setShowImportModal(true);
+        setSelectedFile(null);
+        setImportResult(null);
+    };
+
+    const toggleAddClassMenu = () => {
+        setShowAddClassModeModal((prev) => {
+            const next = !prev;
+            if (next) {
+                setShowStudentMoreMenu(false);
+            }
+            return next;
+        });
+    };
+
+    const toggleStudentMoreMenu = () => {
+        setShowStudentMoreMenu((prev) => {
+            const next = !prev;
+            if (next) {
+                setShowAddClassModeModal(false);
+            }
+            return next;
+        });
+    };
+
     if (!normalizedCourseId) {
-    return <div className="user-placeholder">请先选择课程。</div>;
-}
+        return <div className="user-placeholder">请先选择课程。</div>;
+    }
 
-return (
-    <div className="user-management">
-        <div className="user-management-toolbar">
-            <h2>课程学生管理</h2>
-            <div className="user-management-actions">
-                <div className="add-class-trigger" ref={addClassMenuRef}>
-                    <button onClick={() => setShowAddClassModeModal((prev) => !prev)}>添加班级</button>
-                    {showAddClassModeModal ? (
-                        <div className="add-class-dropdown">
-                            <button onClick={() => handleChooseCreateClassMode('manual')}>手动添加</button>
-                            <button onClick={() => handleChooseCreateClassMode('batch')}>批量导入</button>
+    return (
+        <div className="user-management">
+            <section className="management-module-card">
+                <div className="module-title-row">
+                    <h3>班级与课程码</h3>
+                    <div className="module-toolbar-actions">
+                        <div className="menu-trigger add-class-trigger" ref={addClassMenuRef}>
+                            <button type="button" className="primary-btn" onClick={toggleAddClassMenu}>添加班级</button>
+                            {showAddClassModeModal ? (
+                                <div className="add-class-dropdown">
+                                    <button type="button" onClick={() => handleChooseCreateClassMode('manual')}>手动添加</button>
+                                    <button type="button" onClick={() => handleChooseCreateClassMode('batch')}>批量导入</button>
+                                </div>
+                            ) : null}
                         </div>
-                    ) : null}
+                        <button type="button" className="secondary-btn" onClick={handleRefreshClassPanel}>刷新</button>
+                    </div>
                 </div>
-                <button onClick={handleRefreshClassPanel}>刷新班级</button>
-                <button onClick={() => { setShowImportModal(true); setSelectedFile(null); setImportResult(null); }}>导入学生</button>
-            </div>
-        </div>
-
-        <div className="course-offering-panel">
-            <div className="course-offering-head">
-                <strong>班级与课程码</strong>
-                <span>可为已导入的班级生成课程码，并在需要时移除班级。</span>
-            </div>
-            {loadingOfferings ? (
-                <div className="user-placeholder">正在加载班级...</div>
-            ) : classCodeRows.length === 0 ? (
-                <div className="user-placeholder">暂无班级。</div>
-            ) : (
-                <div className="user-table-wrap">
-                    <table className="user-table">
-                        <thead>
-                            <tr>
-                                <th>班级名称</th>
-                                <th>开课代码</th>
-                                <th>课程码</th>
-                                <th>学期</th>
-                                <th>状态</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {classCodeRows.map((item) => (
-                                <tr key={classRowActionKey(item)}>
-                                    <td>{item.className}</td>
-                                    <td>{item.offeringCode}</td>
-                                    <td>{item.joinCode}</td>
-                                    <td>{item.term}</td>
-                                    <td>{item.status}</td>
-                                    <td>
-                                        {item.isPlaceholder ? (
-                                            <>
-                                                <button
-                                                    onClick={() => handleGenerateCodeForClass(item.className)}
-                                                    disabled={generatingClassName === item.className}
-                                                >
-                                                    {generatingClassName === item.className ? '生成中...' : '生成课程码'}
-                                                </button>
-                                                {item.classId ? (
+                {loadingOfferings ? (
+                    <div className="user-placeholder">正在加载班级...</div>
+                ) : classCodeRows.length === 0 ? (
+                    <div className="user-placeholder">暂无班级。</div>
+                ) : (
+                    <div className="user-table-wrap">
+                        <table className="user-table">
+                            <thead>
+                                <tr>
+                                    <th>班级名称</th>
+                                    <th>开课代码</th>
+                                    <th>课程码</th>
+                                    <th>学期</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {classCodeRows.map((item) => (
+                                    <tr key={classRowActionKey(item)}>
+                                        <td>{item.className}</td>
+                                        <td>{item.offeringCode}</td>
+                                        <td>{item.joinCode}</td>
+                                        <td>{item.term}</td>
+                                        <td>{item.status}</td>
+                                        <td>
+                                            {item.isPlaceholder ? (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleGenerateCodeForClass(item.className)}
+                                                        disabled={generatingClassName === item.className}
+                                                    >
+                                                        {generatingClassName === item.className ? '生成中...' : '生成课程码'}
+                                                    </button>
+                                                    {item.classId ? (
+                                                        <button
+                                                            className="danger-btn"
+                                                            onClick={() => handleRemoveClass(item)}
+                                                            disabled={removingClassKey === classRowActionKey(item)}
+                                                        >
+                                                            {removingClassKey === classRowActionKey(item) ? '移除中...' : '移除班级'}
+                                                        </button>
+                                                    ) : null}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button onClick={() => handleCopyJoinCode(item.joinCode)}>复制码</button>
+                                                    <button onClick={() => setQrModal({ open: true, item })}>显示二维码</button>
                                                     <button
                                                         className="danger-btn"
                                                         onClick={() => handleRemoveClass(item)}
@@ -782,90 +824,111 @@ return (
                                                     >
                                                         {removingClassKey === classRowActionKey(item) ? '移除中...' : '移除班级'}
                                                     </button>
-                                                ) : null}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button onClick={() => handleCopyJoinCode(item.joinCode)}>复制码</button>
-                                                <button onClick={() => setQrModal({ open: true, item })}>显示二维码</button>
-                                                <button
-                                                    className="danger-btn"
-                                                    onClick={() => handleRemoveClass(item)}
-                                                    disabled={removingClassKey === classRowActionKey(item)}
-                                                >
-                                                    {removingClassKey === classRowActionKey(item) ? '移除中...' : '移除班级'}
-                                                </button>
-                                            </>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                                                </>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </section>
+
+            <section className="management-module-card">
+                <div className="module-title-row">
+                    <h3>学生列表</h3>
                 </div>
-            )}
-        </div>
+                <div className="module-toolbar student-module-toolbar">
+                    <div className="student-filter-group">
+                        <input type="text" placeholder="按学号或姓名搜索" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+                        <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+                            <option value="">全部班级</option>
+                            {classFilterOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                        </select>
+                        <select value={admissionYearFilter} onChange={(e) => setAdmissionYearFilter(e.target.value)}>
+                            <option value="">全部入学年份</option>
+                            {admissionYears.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                        </select>
+                        <button type="button" className="secondary-btn" onClick={handleSearch}>搜索</button>
+                        <button type="button" className="secondary-btn" onClick={handleResetSearch}>重置</button>
+                    </div>
+                    <div className="module-toolbar-actions">
+                        <button type="button" className="primary-btn" onClick={openStudentImportModal}>导入学生</button>
+                        <div className="menu-trigger" ref={studentMoreMenuRef}>
+                            <button type="button" className="secondary-btn" onClick={toggleStudentMoreMenu}>更多...</button>
+                            {showStudentMoreMenu ? (
+                                <div className="module-dropdown module-dropdown-right">
+                                    <button
+                                        type="button"
+                                        className="danger-item"
+                                        disabled={!classFilter || loading}
+                                        onClick={() => {
+                                            setShowStudentMoreMenu(false);
+                                            handleBatchRemoveByClass();
+                                        }}
+                                    >
+                                        移出当前班级学生
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={loading || exportingCredentials}
+                                        onClick={() => {
+                                            setShowStudentMoreMenu(false);
+                                            handleExportStudentCredentials();
+                                        }}
+                                    >
+                                        {exportingCredentials ? '导出中...' : '导出账号密码'}
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </div>
 
-        <div className="user-filters">
-            <input type="text" placeholder="按学号或姓名搜索" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
-            <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-                <option value="">全部班级</option>
-                {classFilterOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-            <select value={admissionYearFilter} onChange={(e) => setAdmissionYearFilter(e.target.value)}>
-                <option value="">全部入学年份</option>
-                {admissionYears.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-            <button onClick={handleSearch}>搜索</button>
-            <button onClick={handleResetSearch}>重置</button>
-            <button className="danger-btn" disabled={!classFilter || loading} onClick={handleBatchRemoveByClass}>移出当前班级学生</button>
-            <button disabled={loading || exportingCredentials} onClick={handleExportStudentCredentials}>
-                {exportingCredentials ? '导出中...' : '导出账号密码'}
-            </button>
-        </div>
+                <div className="user-table-wrap">
+                    {loading ? (
+                        <div className="user-placeholder">正在加载学生...</div>
+                    ) : students.length === 0 ? (
+                        <div className="user-placeholder">未找到学生。</div>
+                    ) : (
+                        <table className="user-table">
+                            <thead>
+                                <tr>
+                                    <th>学号</th>
+                                    <th>组织</th>
+                                    <th>姓名</th>
+                                    <th>入学年份</th>
+                                    <th>班级</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {students.map((item) => (
+                                    <tr key={item.student_id || item.username}>
+                                        <td>{item.student_id || '-'}</td>
+                                        <td>{item.organization || '-'}</td>
+                                        <td>{item.real_name || '-'}</td>
+                                        <td>{item.admission_year_label || (item.admission_year ? (String(item.admission_year) + '级') : '-')}</td>
+                                        <td>{item.class_name || '-'}</td>
+                                        <td>
+                                            <button onClick={() => handleResetPassword(item.student_id)}>重置密码</button>
+                                            <button className="danger-btn" onClick={() => handleRemoveStudent(item.student_id)}>移出课程</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
 
-        <div className="user-table-wrap">
-            {loading ? (
-                <div className="user-placeholder">正在加载学生...</div>
-            ) : students.length === 0 ? (
-                <div className="user-placeholder">未找到学生。</div>
-            ) : (
-                <table className="user-table">
-                    <thead>
-                        <tr>
-                            <th>学号</th>
-                            <th>组织</th>
-                            <th>姓名</th>
-                            <th>入学年份</th>
-                            <th>班级</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {students.map((item) => (
-                            <tr key={item.student_id || item.username}>
-                                <td>{item.student_id || '-'}</td>
-                                <td>{item.organization || '-'}</td>
-                                <td>{item.real_name || '-'}</td>
-                                <td>{item.admission_year_label || (item.admission_year ? (String(item.admission_year) + '级') : '-')}</td>
-                                <td>{item.class_name || '-'}</td>
-                                <td>
-                                    <button onClick={() => handleResetPassword(item.student_id)}>重置密码</button>
-                                    <button className="danger-btn" onClick={() => handleRemoveStudent(item.student_id)}>移出课程</button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            )}
-        </div>
-
-        <div className="user-pagination">
-            <span>共 {total} 条</span>
-            <button disabled={page <= 1} onClick={() => loadStudents({ targetPage: page - 1, targetKeyword: keyword, targetClass: classFilter, targetAdmissionYear: admissionYearFilter })}>上一页</button>
-            <span>{page} / {totalPages}</span>
-            <button disabled={page >= totalPages} onClick={() => loadStudents({ targetPage: page + 1, targetKeyword: keyword, targetClass: classFilter, targetAdmissionYear: admissionYearFilter })}>下一页</button>
-        </div>
+                <div className="user-pagination">
+                    <span>共 {total} 条</span>
+                    <button disabled={page <= 1} onClick={() => loadStudents({ targetPage: page - 1, targetKeyword: keyword, targetClass: classFilter, targetAdmissionYear: admissionYearFilter })}>上一页</button>
+                    <span>{page} / {totalPages}</span>
+                    <button disabled={page >= totalPages} onClick={() => loadStudents({ targetPage: page + 1, targetKeyword: keyword, targetClass: classFilter, targetAdmissionYear: admissionYearFilter })}>下一页</button>
+                </div>
+            </section>
 
         {showImportModal ? (
             <div className="user-modal-overlay" onClick={() => setShowImportModal(false)}>

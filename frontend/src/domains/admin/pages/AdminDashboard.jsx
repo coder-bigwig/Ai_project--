@@ -1,10 +1,18 @@
 import React, { useMemo, useState } from 'react';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import AdminUserManagementLegacy from './AdminUserManagementLegacy';
 import AdminResourceControl from './AdminResourceControl';
 import TeacherAIModule from '../../teacher/components/TeacherAIModule';
 import TeacherProfilePanel from '../../teacher/components/TeacherProfilePanel';
+import { persistJupyterTokenFromUrl } from '../../../shared/jupyter/jupyterAuth';
 import '../../teacher/styles/TeacherDashboard.css';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const JUPYTERHUB_URL = process.env.REACT_APP_JUPYTERHUB_URL || '';
+const DEFAULT_JUPYTERHUB_URL = `${window.location.origin}/jupyter/hub/home`;
+const DEFAULT_JUPYTERHUB_HEALTH_URL = `${window.location.origin}/jupyter/hub/health`;
+const LEGACY_JUPYTERHUB_URL = `${window.location.protocol}//${window.location.hostname}:8003/jupyter/hub/home`;
 
 const TABS = [
   { key: 'admin-resource', label: '资源控制', tip: '配额与操作日志', Icon: AdminControlTabIcon },
@@ -37,6 +45,37 @@ function AdminDashboard({ username, onLogout }) {
     window.location.reload();
   };
 
+  const openJupyterHub = async () => {
+    try {
+      const resp = await axios.get(`${API_BASE_URL}/api/jupyterhub/auto-login-url`, { params: { username } });
+      const autoLoginUrl = resp?.data?.jupyter_url;
+      if (autoLoginUrl) {
+        const launchUrl = persistJupyterTokenFromUrl(autoLoginUrl);
+        window.open(launchUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    } catch (err) {
+      // fallback to below
+    }
+
+    if (JUPYTERHUB_URL) {
+      window.open(JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    try {
+      const resp = await fetch(DEFAULT_JUPYTERHUB_HEALTH_URL, { method: 'GET', credentials: 'omit' });
+      if (resp.ok) {
+        window.open(DEFAULT_JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    window.open(LEGACY_JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+  };
+
   return (
     <div className="teacher-lab-shell admin-lab-shell">
       <header className="teacher-lab-topbar">
@@ -50,6 +89,7 @@ function AdminDashboard({ username, onLogout }) {
             <span className="teacher-lab-user-name">{`管理员账号：${username || '-'}`}</span>
             <span className="teacher-lab-user-role">角色：系统管理员</span>
           </div>
+          <button type="button" className="teacher-lab-jhub" onClick={openJupyterHub}>进入 JupyterHub</button>
           <button type="button" className="teacher-lab-logout" onClick={logout}>退出</button>
         </div>
       </header>

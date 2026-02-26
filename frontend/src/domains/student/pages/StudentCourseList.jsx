@@ -5,6 +5,11 @@ import { persistJupyterTokenFromUrl } from '../../../shared/jupyter/jupyterAuth'
 import AttachmentPanel from '../components/AttachmentPanel';
 import StudentResourcePanel from '../components/StudentResourcePanel';
 import StudentProfilePanel from '../components/StudentProfilePanel';
+import TeacherLabSidebar from '../../teacher/components/TeacherLabSidebar';
+import {
+    AssignmentsTabIcon,
+    ResourcesTabIcon,
+} from '../../teacher/components/TeacherSidebarIcons';
 import '../styles/StudentCourseList.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
@@ -52,6 +57,8 @@ const TEXT = {
     noSearchResult: '\u672a\u5339\u914d\u5230\u8bfe\u7a0b',
     detailResources: '\u8d44\u6599',
     detailAssignments: '\u4f5c\u4e1a',
+    detailResourcesTip: '\u8bfe\u7a0b\u516c\u5171\u8d44\u6599',
+    detailAssignmentsTip: '\u5b9e\u9a8c\u4f5c\u4e1a\u4e0e\u63d0\u4ea4',
     assignmentSearchPlaceholder: '\u641c\u7d22\u4f5c\u4e1a',
     assignmentCountPrefix: '\u4f5c\u4e1a\u6570\uff1a',
     resourceSearchPlaceholderInCourse: '\u641c\u7d22\u8d44\u6599',
@@ -650,8 +657,8 @@ function StudentCourseList({ username, onLogout }) {
     }, []);
 
     const sideMenus = [
-        { key: 'assignments', label: TEXT.detailAssignments },
-        { key: 'resources', label: TEXT.detailResources },
+        { key: 'assignments', label: TEXT.detailAssignments, tip: TEXT.detailAssignmentsTip, Icon: AssignmentsTabIcon, enabled: true },
+        { key: 'resources', label: TEXT.detailResources, tip: TEXT.detailResourcesTip, Icon: ResourcesTabIcon, enabled: true },
     ];
 
     return (
@@ -773,32 +780,26 @@ function StudentCourseList({ username, onLogout }) {
                                         </div>
                                     ) : (
                                         <div className="lab-course-detail-shell">
-                                            <aside className="lab-course-detail-sidebar">
-                                                <button
-                                                    type="button"
-                                                    className="lab-course-detail-cover"
-                                                    onClick={() => navigate('/student')}
-                                                >
-                                                    <div className="lab-course-detail-cover-links">
-                                                        <span>{TEXT.detailMenuBack}</span>
-                                                    </div>
-                                                </button>
-                                                <div className="lab-course-detail-title">{selectedCourse.courseName}</div>
-                                                <div className="lab-course-detail-menu">
-                                                    {sideMenus.map((item) => (
+                                            <TeacherLabSidebar
+                                                title={selectedCourse.courseName || ''}
+                                                items={sideMenus}
+                                                activeKey={detailMenu}
+                                                onSelect={setDetailMenu}
+                                                headerContent={(
+                                                    <div className="student-course-sidebar-header">
                                                         <button
-                                                            key={item.key}
                                                             type="button"
-                                                            className={detailMenu === item.key ? 'active' : ''}
-                                                            onClick={() => setDetailMenu(item.key)}
+                                                            className="student-course-detail-cover"
+                                                            onClick={() => navigate('/student')}
                                                         >
-                                                            <span className="dot" />
-                                                            <span>{item.label}</span>
+                                                            <div className="student-course-detail-cover-links">
+                                                                <span>{TEXT.detailMenuBack}</span>
+                                                            </div>
                                                         </button>
-                                                    ))}
-                                                </div>
-                                            </aside>
-                                            <main className="lab-course-detail-main">
+                                                    </div>
+                                                )}
+                                            />
+                                            <main className="lab-course-detail-main course-page">
                                                 {detailMenu === 'resources' ? (
                                                     <div className="lab-course-pane">
                                                         <StudentResourcePanel

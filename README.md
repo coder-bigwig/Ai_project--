@@ -261,6 +261,18 @@ docker compose exec -T experiment-manager python init_db.py
 
 服务器 compose 默认将 AI / Prometheus / Grafana 端口绑定到 `127.0.0.1`，适合通过 SSH 隧道访问。若需公网开放，请修改 `docker-compose.server.yml` 的端口绑定。
 
+### 12.4 JupyterLab 左侧 AI Chat 显示 `There seems to be a problem with the Chat backend`
+
+常见原因是单用户容器没有拿到 `OPENAI_API_KEY`（或已被空配置覆盖）。排查顺序：
+
+- 在教师端先保存一次 AI 配置（API Key、Base URL、模型）
+- 重启对应用户的 Jupyter 服务器（Hub Control Panel 里 Stop My Server 后再 Start）
+- 在 Jupyter 终端验证：
+  - `echo $OPENAI_API_KEY`
+  - `cat ~/.local/share/jupyter/jupyter_ai/config.json`
+- 若服务器使用 `.env` 的 `DEEPSEEK_API_KEY`，重启 `jupyterhub` 服务使配置重新注入：
+  - `docker compose -f docker-compose.server.yml up -d --build jupyterhub`
+
 ---
 
 ## 13. 技术栈

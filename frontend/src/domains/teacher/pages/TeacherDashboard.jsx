@@ -6,6 +6,8 @@ import CourseEditorModal from '../components/CourseEditorModal';
 import ExperimentEditorModal from '../components/ExperimentEditorModal';
 import TeacherProfilePanel from '../components/TeacherProfilePanel';
 import TeacherAIModule from '../components/TeacherAIModule';
+import TeacherLabSidebar from '../components/TeacherLabSidebar';
+import { CourseTabIcon, ProfileTabIcon, AITabIcon } from '../components/TeacherSidebarIcons';
 import { persistJupyterTokenFromUrl } from '../../../shared/jupyter/jupyterAuth';
 import '../styles/TeacherDashboard.css';
 
@@ -493,20 +495,12 @@ function TeacherDashboard({ username, userRole, onLogout }) {
 
       <div className={`teacher-lab-layout ${isCourseDetailRoute ? 'course-detail-route' : ''}`}>
         {isCourseDetailRoute ? null : (
-          <aside className="teacher-lab-sidebar">
-            <div className="teacher-lab-sidebar-title">{'\u6a21\u5757'}</div>
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                className={`teacher-lab-menu-item ${activeTab === tab.key ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab.key)}
-              >
-                <span className="teacher-lab-menu-icon"><tab.Icon /></span>
-                <span className="teacher-lab-menu-text"><strong>{tab.label}</strong><small>{tab.tip}</small></span>
-              </button>
-            ))}
-          </aside>
+          <TeacherLabSidebar
+            title={'\u6a21\u5757'}
+            items={tabs}
+            activeKey={activeTab}
+            onSelect={setActiveTab}
+          />
         )}
 
         <section className={`teacher-lab-content ${isCourseDetailRoute ? 'course-detail-content' : ''}`}>
@@ -593,35 +587,6 @@ function TeacherDashboard({ username, userRole, onLogout }) {
         />
       ) : null}
     </div>
-  );
-}
-
-function CourseTabIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3.5" y="4" width="17" height="16" rx="2.5" />
-      <path d="M8 9h8M8 13h8M8 17h5" />
-    </svg>
-  );
-}
-
-function ProfileTabIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="3.2" />
-      <path d="M5.5 18.5C6.6 15.9 9 14.4 12 14.4C15 14.4 17.4 15.9 18.5 18.5" />
-      <rect x="3.5" y="3.5" width="17" height="17" rx="2.4" />
-    </svg>
-  );
-}
-
-function AITabIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v4M6.5 5.5l2.8 2.8M3 12h4M17 12h4M6.5 18.5l2.8-2.8M14.7 15.7l2.8 2.8" />
-      <circle cx="12" cy="12" r="5" />
-      <path d="M10.5 12.2l1 1 2-2.3" />
-    </svg>
   );
 }
 

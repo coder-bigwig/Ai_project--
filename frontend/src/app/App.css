@@ -265,3 +265,99 @@ body {
     text-align: left;
     margin: 0;
 }
+
+:root {
+    --shell-base-font-size: 15px;
+    --shell-topbar-padding-y: 12px;
+    --shell-topbar-padding-x: 24px;
+    --shell-topbar-title-size: 25px;
+    --shell-topbar-subtitle-size: 13px;
+    --shell-topbar-account-size: 16px;
+    --shell-topbar-account-meta-size: 13px;
+    --shell-sidebar-title-size: 14px;
+    --shell-sidebar-item-min-height: 62px;
+    --shell-sidebar-item-padding-y: 11px;
+    --shell-sidebar-item-padding-x: 16px;
+    --shell-sidebar-icon-size: 32px;
+    --shell-sidebar-icon-glyph-size: 20px;
+    --shell-sidebar-item-title-size: 17px;
+    --shell-sidebar-item-desc-size: 13px;
+}
+
+.teacher-lab-shell .teacher-lab-topbar,
+.lab-page-shell .lab-topbar {
+    font-size: var(--shell-base-font-size);
+    padding: var(--shell-topbar-padding-y) var(--shell-topbar-padding-x);
+}
+
+.teacher-lab-shell .teacher-lab-brand h1,
+.lab-page-shell .lab-brand-text h1 {
+    font-size: var(--shell-topbar-title-size);
+    line-height: 1.1;
+}
+
+.teacher-lab-shell .teacher-lab-brand p,
+.lab-page-shell .lab-brand-text p {
+    font-size: var(--shell-topbar-subtitle-size);
+    line-height: 1.3;
+}
+
+.teacher-lab-shell .teacher-lab-user-name,
+.lab-page-shell .lab-user-name {
+    font-size: var(--shell-topbar-account-size);
+    line-height: 1.3;
+}
+
+.teacher-lab-shell .teacher-lab-user-role,
+.lab-page-shell .lab-user-meta {
+    font-size: var(--shell-topbar-account-meta-size);
+    line-height: 1.3;
+}
+
+.teacher-lab-shell .teacher-lab-sidebar,
+.lab-page-shell .lab-sidebar,
+.lab-page-shell .teacher-lab-sidebar {
+    font-size: var(--shell-base-font-size);
+}
+
+.teacher-lab-shell .teacher-lab-sidebar-title,
+.lab-page-shell .lab-sidebar-title,
+.lab-page-shell .teacher-lab-sidebar-title {
+    font-size: var(--shell-sidebar-title-size);
+    line-height: 1.4;
+}
+
+.teacher-lab-shell .teacher-lab-menu-item,
+.lab-page-shell .lab-menu-item,
+.lab-page-shell .teacher-lab-menu-item {
+    min-height: var(--shell-sidebar-item-min-height);
+    padding: var(--shell-sidebar-item-padding-y) var(--shell-sidebar-item-padding-x);
+}
+
+.teacher-lab-shell .teacher-lab-menu-icon,
+.lab-page-shell .lab-menu-icon,
+.lab-page-shell .teacher-lab-menu-icon {
+    width: var(--shell-sidebar-icon-size);
+    height: var(--shell-sidebar-icon-size);
+}
+
+.teacher-lab-shell .teacher-lab-menu-icon svg,
+.lab-page-shell .lab-menu-icon svg,
+.lab-page-shell .teacher-lab-menu-icon svg {
+    width: var(--shell-sidebar-icon-glyph-size);
+    height: var(--shell-sidebar-icon-glyph-size);
+}
+
+.teacher-lab-shell .teacher-lab-menu-text strong,
+.lab-page-shell .lab-menu-text strong,
+.lab-page-shell .teacher-lab-menu-text strong {
+    font-size: var(--shell-sidebar-item-title-size);
+    line-height: 1.2;
+}
+
+.teacher-lab-shell .teacher-lab-menu-text small,
+.lab-page-shell .lab-menu-text small,
+.lab-page-shell .teacher-lab-menu-text small {
+    font-size: var(--shell-sidebar-item-desc-size);
+    line-height: 1.3;
+}

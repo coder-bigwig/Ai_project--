@@ -116,10 +116,38 @@ default_role_limits = {
     "teacher": {"cpu_limit": 2.0, "memory_limit": "8G", "storage_limit": "2G"},
     "admin": {"cpu_limit": 4.0, "memory_limit": "8G", "storage_limit": "20G"},
 }
+
+
+def _first_non_empty_env(*names, default=""):
+    for name in names:
+        value = str(os.environ.get(name, "") or "").strip()
+        if value:
+            return value
+    return default
+
+
 default_ai_shared_config = {
-    "api_key": "",
-    "base_url": "https://api.deepseek.com",
-    "chat_model": "deepseek-chat",
+    "api_key": _first_non_empty_env(
+        "JAI_API_KEY",
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "AI_SHARED_API_KEY",
+        default="",
+    )[:512],
+    "base_url": _first_non_empty_env(
+        "JAI_BASE_URL",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+        "DEEPSEEK_BASE_URL",
+        "AI_SHARED_BASE_URL",
+        default="https://api.deepseek.com",
+    ).rstrip("/"),
+    "chat_model": _first_non_empty_env(
+        "JAI_DEFAULT_MODEL",
+        "DEEPSEEK_MODEL",
+        "AI_SHARED_CHAT_MODEL",
+        default="deepseek-chat",
+    )[:120],
 }
 _SIZE_LIMIT_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?b?)?\s*$", re.IGNORECASE)
 
@@ -269,7 +297,14 @@ def _normalize_ai_shared_config(raw):
 
 def _load_ai_shared_config():
     payload = dict(default_ai_shared_config)
-    payload.update(_normalize_ai_shared_config(_load_app_kv_payload("ai_shared_config")))
+    stored = _normalize_ai_shared_config(_load_app_kv_payload("ai_shared_config"))
+    # Keep env fallback values when DB fields are empty.
+    if stored.get("api_key"):
+        payload["api_key"] = stored["api_key"]
+    if stored.get("base_url"):
+        payload["base_url"] = stored["base_url"]
+    if stored.get("chat_model"):
+        payload["chat_model"] = stored["chat_model"]
     return payload
 
 

@@ -77,7 +77,15 @@ async def update_ai_shared_config(
     if role not in {"teacher", "admin"}:
         raise HTTPException(status_code=403, detail="权限不足")
 
-    updated = main._normalize_ai_shared_config(payload.dict())
+    payload_dict = payload.dict()
+    existing = await _load_ai_shared_config(db)
+    # Preserve stored secrets when UI submits masked/blank values.
+    if not normalize_text(payload_dict.get("api_key")):
+        payload_dict["api_key"] = existing.get("api_key", "")
+    if not normalize_text(payload_dict.get("tavily_api_key")):
+        payload_dict["tavily_api_key"] = existing.get("tavily_api_key", "")
+
+    updated = main._normalize_ai_shared_config(payload_dict)
     await _save_ai_shared_config(db, updated)
     sanitized = dict(updated)
     sanitized["api_key"] = ""

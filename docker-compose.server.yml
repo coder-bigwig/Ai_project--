@@ -98,6 +98,9 @@ services:
       POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-experiment_manager}
       DOCKER_NOTEBOOK_IMAGE: training-lab:latest
       EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
 
       # Must match Nginx path prefix (no trailing slash needed).
       JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
@@ -193,4 +196,3 @@ volumes:
   grafana-data:
   course-materials:
   shared-datasets:
-

@@ -27,7 +27,7 @@ function isCompleted(status) {
   return key === 'submitted' || key === 'graded';
 }
 
-function ProgressPanel({ progress, loading, courseMap }) {
+function ProgressPanel({ progress, loading, courseMap, onRefresh }) {
   const [filter, setFilter] = useState('all');
   const total = progress.length;
   const completed = useMemo(() => progress.filter((item) => isCompleted(item.status)).length, [progress]);
@@ -59,12 +59,17 @@ function ProgressPanel({ progress, loading, courseMap }) {
       </div>
 
       <div className="teacher-lab-filter-row">
-        <label htmlFor="teacher-progress-filter">{'\u72b6\u6001\u7b5b\u9009\uff1a'}</label>
-        <select id="teacher-progress-filter" value={filter} onChange={(event) => setFilter(event.target.value)}>
-          <option value="all">{'\u5168\u90e8'}</option>
-          <option value="completed">{'\u5df2\u5b8c\u6210'}</option>
-          <option value="incomplete">{'\u672a\u5b8c\u6210'}</option>
-        </select>
+        <div className="teacher-lab-filter-left">
+          <label htmlFor="teacher-progress-filter">{'\u72b6\u6001\u7b5b\u9009\uff1a'}</label>
+          <select id="teacher-progress-filter" value={filter} onChange={(event) => setFilter(event.target.value)}>
+            <option value="all">{'\u5168\u90e8'}</option>
+            <option value="completed">{'\u5df2\u5b8c\u6210'}</option>
+            <option value="incomplete">{'\u672a\u5b8c\u6210'}</option>
+          </select>
+        </div>
+        <button type="button" className="teacher-course-plain-btn" onClick={onRefresh}>
+          {'\u5237\u65b0\u6570\u636e'}
+        </button>
       </div>
 
       <div className="teacher-lab-table-wrap">

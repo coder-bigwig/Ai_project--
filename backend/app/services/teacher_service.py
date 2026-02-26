@@ -929,7 +929,32 @@ class TeacherService:
         _, _, course = await self._ensure_course_manager(course_id=course_id, teacher_username=teacher_username)
 
         safe_days = max(1, min(int(days or 30), 365))
-        since_dt = datetime.now(timezone.utc) - timedelta(days=safe_days)
+        now_utc = datetime.now(timezone.utc)
+        since_dt = now_utc - timedelta(days=safe_days)
+        local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+
+        heatmap_window_days = 7
+        heatmap_hours = list(range(24))
+        heatmap_start_date = now_utc.astimezone(local_tz).date() - timedelta(days=heatmap_window_days - 1)
+        heatmap_dates = [
+            (heatmap_start_date + timedelta(days=offset)).isoformat()
+            for offset in range(heatmap_window_days)
+        ]
+        heatmap_date_index = {value: idx for idx, value in enumerate(heatmap_dates)}
+        fallback_heatmap_values = [[0 for _ in heatmap_hours] for _ in heatmap_dates]
+        logged_heatmap_values = [[0 for _ in heatmap_hours] for _ in heatmap_dates]
+
+        def add_heatmap_point(matrix: list[list[int]], value: Optional[datetime]):
+            if value is None:
+                return
+            local_dt = value.astimezone(local_tz)
+            date_key = local_dt.date().isoformat()
+            day_index = heatmap_date_index.get(date_key)
+            if day_index is None:
+                return
+            hour_value = int(local_dt.hour)
+            if 0 <= hour_value < 24:
+                matrix[day_index][hour_value] += 1
 
         student_pairs = await self._course_student_pairs(course.id)
         course_student_ids = set()
@@ -948,6 +973,15 @@ class TeacherService:
                 "jupyter_experiment_visit_count": 0,
                 "active_student_count": 0,
                 "active_class_count": 0,
+                "recent_learning_heatmap": {
+                    "window_days": heatmap_window_days,
+                    "dates": heatmap_dates,
+                    "hours": heatmap_hours,
+                    "values": fallback_heatmap_values,
+                    "max_count": 0,
+                    "total_count": 0,
+                    "data_source": "none",
+                },
                 "visit_data_source": "submissions_start_time",
             }
 
@@ -974,6 +1008,7 @@ class TeacherService:
                 if start_time and start_time >= since_dt:
                     fallback_visit_count += 1
                     active_student_ids.add(student_id)
+                    add_heatmap_point(fallback_heatmap_values, start_time)
                 if submit_time and submit_time >= since_dt:
                     active_student_ids.add(student_id)
 
@@ -1005,6 +1040,7 @@ class TeacherService:
             logged_visit_count += 1
             last_counted_visit_at[dedup_key] = created_at
             active_student_ids.add(normalized_student_id)
+            add_heatmap_point(logged_heatmap_values, created_at)
 
         try:
             if self.main._jupyterhub_enabled():
@@ -1023,12 +1059,33 @@ class TeacherService:
             if normalize_text(class_name_by_student.get(student_id, ""))
         }
 
+        heatmap_data_source = "operation_logs" if logged_visit_count > 0 else ("submissions_start_time" if fallback_visit_count > 0 else "none")
+        selected_heatmap_values = logged_heatmap_values if logged_visit_count > 0 else fallback_heatmap_values
+        heatmap_max_count = 0
+        heatmap_total_count = 0
+        for row in selected_heatmap_values:
+            if not row:
+                continue
+            row_max = max(row)
+            if row_max > heatmap_max_count:
+                heatmap_max_count = int(row_max)
+            heatmap_total_count += int(sum(row))
+
         return {
             "course_id": course.id,
             "window_days": safe_days,
             "jupyter_experiment_visit_count": int(logged_visit_count if logged_visit_count > 0 else fallback_visit_count),
             "active_student_count": len(active_student_ids),
             "active_class_count": len(active_class_names),
+            "recent_learning_heatmap": {
+                "window_days": heatmap_window_days,
+                "dates": heatmap_dates,
+                "hours": heatmap_hours,
+                "values": selected_heatmap_values,
+                "max_count": heatmap_max_count,
+                "total_count": heatmap_total_count,
+                "data_source": heatmap_data_source,
+            },
             "visit_data_source": "operation_logs" if logged_visit_count > 0 else "submissions_start_time",
         }
 

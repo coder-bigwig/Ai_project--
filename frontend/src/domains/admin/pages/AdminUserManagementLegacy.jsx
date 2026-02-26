@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import '../../teacher/styles/TeacherUserManagement.css';
+import '../styles/AdminUserManagementLegacy.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const DEFAULT_ACCOUNT_PASSWORD = 'Fit963';

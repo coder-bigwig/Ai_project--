@@ -5,6 +5,17 @@ import TeacherUserManagement from './TeacherUserManagement';
 import TeacherTeamManagement from './TeacherTeamManagement';
 import ResourceFileManagement from './ResourceFileManagement';
 import ProgressPanel from './ProgressPanel';
+import TeacherLabSidebar from './TeacherLabSidebar';
+import {
+  CourseTabIcon,
+  TeamTabIcon,
+  ProgressTabIcon,
+  ReviewTabIcon,
+  ResourcesTabIcon,
+  AssignmentsTabIcon,
+  RecycleTabIcon,
+  StatisticsTabIcon,
+} from './TeacherSidebarIcons';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const TEACHER_COURSE_RESUME_KEY = 'teacherCourseResumeId';
@@ -67,6 +78,111 @@ function normalizeStringArray(values) {
   return result;
 }
 
+const HEATMAP_WINDOW_DAYS = 7;
+const HEATMAP_HOURS = Array.from({ length: 24 }, (_, index) => index);
+const HEATMAP_WEEKDAY_LABELS = ['\u65e5', '\u4e00', '\u4e8c', '\u4e09', '\u56db', '\u4e94', '\u516d'];
+
+function buildDefaultHeatmap(days = HEATMAP_WINDOW_DAYS) {
+  const windowDays = Math.max(1, Number(days) || HEATMAP_WINDOW_DAYS);
+  const now = new Date();
+  const dateKeys = [];
+  for (let offset = windowDays - 1; offset >= 0; offset -= 1) {
+    const point = new Date(now);
+    point.setHours(0, 0, 0, 0);
+    point.setDate(now.getDate() - offset);
+    const year = point.getFullYear();
+    const month = String(point.getMonth() + 1).padStart(2, '0');
+    const day = String(point.getDate()).padStart(2, '0');
+    dateKeys.push(`${year}-${month}-${day}`);
+  }
+
+  return {
+    window_days: windowDays,
+    dates: dateKeys,
+    hours: [...HEATMAP_HOURS],
+    values: dateKeys.map(() => HEATMAP_HOURS.map(() => 0)),
+    max_count: 0,
+    total_count: 0,
+    data_source: 'none',
+  };
+}
+
+function normalizeHeatmapPayload(payload) {
+  const fallback = buildDefaultHeatmap();
+  const source = payload && typeof payload === 'object' ? payload : {};
+
+  const dateKeys = (Array.isArray(source?.dates) ? source.dates : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  const normalizedDates = dateKeys.length > 0 ? dateKeys : fallback.dates;
+
+  const rawValues = Array.isArray(source?.values) ? source.values : [];
+  const normalizedValues = normalizedDates.map((_, dayIndex) => {
+    const row = Array.isArray(rawValues[dayIndex]) ? rawValues[dayIndex] : [];
+    return HEATMAP_HOURS.map((hourIndex) => {
+      const count = Number(row[hourIndex] || 0);
+      if (!Number.isFinite(count) || count <= 0) return 0;
+      return Math.floor(count);
+    });
+  });
+
+  const computedMaxCount = normalizedValues.reduce(
+    (acc, row) => Math.max(acc, ...row),
+    0
+  );
+  const parsedMaxCount = Number(source?.max_count);
+  const maxCount = Number.isFinite(parsedMaxCount) && parsedMaxCount >= 0
+    ? Math.floor(parsedMaxCount)
+    : computedMaxCount;
+
+  const computedTotalCount = normalizedValues.reduce(
+    (sum, row) => sum + row.reduce((rowSum, count) => rowSum + count, 0),
+    0
+  );
+  const parsedTotalCount = Number(source?.total_count);
+  const totalCount = Number.isFinite(parsedTotalCount) && parsedTotalCount >= 0
+    ? Math.floor(parsedTotalCount)
+    : computedTotalCount;
+
+  return {
+    window_days: normalizedDates.length,
+    dates: normalizedDates,
+    hours: [...HEATMAP_HOURS],
+    values: normalizedValues,
+    max_count: maxCount,
+    total_count: totalCount,
+    data_source: String(source?.data_source || 'none').trim() || 'none',
+  };
+}
+
+function formatHeatmapDate(dateText) {
+  const parsed = new Date(`${String(dateText || '').trim()}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return {
+      shortDate: String(dateText || ''),
+      weekday: '',
+    };
+  }
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const weekdayLabel = HEATMAP_WEEKDAY_LABELS[parsed.getDay()] || '';
+  return {
+    shortDate: `${month}-${day}`,
+    weekday: weekdayLabel ? `\u5468${weekdayLabel}` : '',
+  };
+}
+
+function resolveHeatmapTone(count, maxCount) {
+  const value = Number(count || 0);
+  const ceiling = Number(maxCount || 0);
+  if (value <= 0 || ceiling <= 0) return 0;
+  const ratio = value / ceiling;
+  if (ratio >= 0.75) return 4;
+  if (ratio >= 0.5) return 3;
+  if (ratio >= 0.25) return 2;
+  return 1;
+}
+
 function CourseWorkspacePanel({
   username,
   userRole,
@@ -103,11 +219,10 @@ function CourseWorkspacePanel({
   const [viewMode, setViewMode] = useState((forceDetail || initialCourseId) ? 'detail' : 'home');
   const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId);
   const [homeKeyword, setHomeKeyword] = useState('');
-  const [detailMenu, setDetailMenu] = useState('management');
+  const [detailMenu, setDetailMenu] = useState('class-management');
   const [assignmentKeyword, setAssignmentKeyword] = useState('');
   const [loadingRecycle, setLoadingRecycle] = useState(false);
   const [recycleRows, setRecycleRows] = useState([]);
-  const [activeManageTab, setActiveManageTab] = useState('class-management');
   const [allOfferings, setAllOfferings] = useState([]);
   const [selectedCourseStudentCount, setSelectedCourseStudentCount] = useState(0);
   const [selectedCourseClassNames, setSelectedCourseClassNames] = useState([]);
@@ -121,6 +236,7 @@ function CourseWorkspacePanel({
     jupyter_experiment_visit_count: 0,
     active_student_count: 0,
     active_class_count: 0,
+    recent_learning_heatmap: buildDefaultHeatmap(),
   });
   const [loadingStatisticsOverview, setLoadingStatisticsOverview] = useState(false);
 
@@ -234,6 +350,7 @@ function CourseWorkspacePanel({
         jupyter_experiment_visit_count: 0,
         active_student_count: 0,
         active_class_count: 0,
+        recent_learning_heatmap: buildDefaultHeatmap(),
       });
       return;
     }
@@ -252,6 +369,7 @@ function CourseWorkspacePanel({
         jupyter_experiment_visit_count: Number(payload?.jupyter_experiment_visit_count || 0),
         active_student_count: Number(payload?.active_student_count || 0),
         active_class_count: Number(payload?.active_class_count || 0),
+        recent_learning_heatmap: normalizeHeatmapPayload(payload?.recent_learning_heatmap),
       });
     } catch (error) {
       console.error('loadStatisticsOverview failed', error);
@@ -259,6 +377,7 @@ function CourseWorkspacePanel({
         jupyter_experiment_visit_count: 0,
         active_student_count: 0,
         active_class_count: 0,
+        recent_learning_heatmap: buildDefaultHeatmap(),
       });
     } finally {
       setLoadingStatisticsOverview(false);
@@ -365,10 +484,6 @@ function CourseWorkspacePanel({
   }, [selectedCourseId]);
 
   useEffect(() => {
-    setActiveManageTab('class-management');
-  }, [selectedCourseId]);
-
-  useEffect(() => {
     setStatisticsTab('overview');
     setStatisticsExperimentId('all');
     setStatisticsKeyword('');
@@ -377,19 +492,19 @@ function CourseWorkspacePanel({
       jupyter_experiment_visit_count: 0,
       active_student_count: 0,
       active_class_count: 0,
+      recent_learning_heatmap: buildDefaultHeatmap(),
     });
   }, [selectedCourseId]);
 
   useEffect(() => {
-    if (detailMenu !== 'management') return;
-    if (activeManageTab === 'student-progress' && typeof onLoadProgress === 'function') {
+    if (detailMenu === 'student-progress' && typeof onLoadProgress === 'function') {
       onLoadProgress();
       return;
     }
-    if (activeManageTab === 'submission-review') {
+    if (detailMenu === 'submission-review') {
       loadCourseSubmissions();
     }
-  }, [activeManageTab, detailMenu, loadCourseSubmissions, onLoadProgress]);
+  }, [detailMenu, loadCourseSubmissions, onLoadProgress]);
 
   useEffect(() => {
     if (detailMenu !== 'statistics') return;
@@ -397,6 +512,12 @@ function CourseWorkspacePanel({
     loadStatisticsStudents();
     loadStatisticsOverview();
   }, [detailMenu, loadCourseSubmissions, loadStatisticsStudents, loadStatisticsOverview]);
+
+  const refreshStatisticsData = useCallback(() => {
+    loadCourseSubmissions();
+    loadStatisticsStudents();
+    loadStatisticsOverview();
+  }, [loadCourseSubmissions, loadStatisticsStudents, loadStatisticsOverview]);
 
   const loadRecycleRows = useCallback(async () => {
     if (!selectedCourse?.id || typeof onListRecycleExperiments !== 'function') return;
@@ -555,25 +676,33 @@ function CourseWorkspacePanel({
   if (!forceDetail && !normalizedRouteCourseId) {
     return (
       <div className="teacher-course-home">
-        <div className="teacher-course-home-toolbar">
-          <div className="teacher-course-home-actions">
-            <button type="button" className="teacher-lab-create-btn" onClick={onCreateCourse}>{'+ \u65b0\u5efa\u8bfe\u7a0b'}</button>
-            <button
-              type="button"
-              className="teacher-lab-delete-btn"
-              onClick={handleDeleteCourseFromHome}
-              disabled={!Array.isArray(courses) || courses.length === 0}
-            >
-              {'- \u5220\u9664\u8bfe\u7a0b'}
-            </button>
-          </div>
-          <div className="teacher-course-search-box">
-            <input
-              type="text"
-              value={homeKeyword}
-              onChange={(event) => setHomeKeyword(event.target.value)}
-              placeholder={"\u641c\u7d22"}
-            />
+        <div className="teacher-course-home-page-header">
+          <div className="teacher-course-home-toolbar">
+            <div className="teacher-course-home-actions">
+              <button
+                type="button"
+                className="teacher-lab-create-btn teacher-course-home-create-btn"
+                onClick={onCreateCourse}
+              >
+                {'+ \u65b0\u5efa\u8bfe\u7a0b'}
+              </button>
+              <button
+                type="button"
+                className="teacher-lab-delete-btn teacher-course-home-delete-btn"
+                onClick={handleDeleteCourseFromHome}
+                disabled={!Array.isArray(courses) || courses.length === 0}
+              >
+                {'- \u5220\u9664\u8bfe\u7a0b'}
+              </button>
+            </div>
+            <div className="teacher-course-search-box teacher-course-home-search-box">
+              <input
+                type="text"
+                value={homeKeyword}
+                onChange={(event) => setHomeKeyword(event.target.value)}
+                placeholder={"\u641c\u7d22"}
+              />
+            </div>
           </div>
         </div>
 
@@ -615,11 +744,14 @@ function CourseWorkspacePanel({
   }
 
   const sideMenus = [
-    { key: 'management', label: '\u7ba1\u7406', enabled: true },
-    { key: 'resources', label: '\u8d44\u6599', enabled: true },
-    { key: 'assignments', label: '\u4f5c\u4e1a', enabled: true },
-    { key: 'recycle', label: '\u56de\u6536\u7ad9', enabled: true },
-    { key: 'statistics', label: '\u7edf\u8ba1', enabled: true },
+    { key: 'class-management', label: '\u73ed\u7ea7\u7ba1\u7406', tip: '\u73ed\u7ea7\u4e0e\u5b66\u751f\u7ba1\u7406', Icon: CourseTabIcon, enabled: true },
+    { key: 'teacher-team', label: '\u6559\u5e08\u56e2\u961f\u7ba1\u7406', tip: '\u6388\u8bfe\u6559\u5e08\u534f\u4f5c\u7ba1\u7406', Icon: TeamTabIcon, enabled: true },
+    { key: 'assignments', label: '\u4f5c\u4e1a', tip: '\u4f5c\u4e1a\u4e0e\u53d1\u5e03\u7ba1\u7406', Icon: AssignmentsTabIcon, enabled: true },
+    { key: 'resources', label: '\u8d44\u6599', tip: '\u8bfe\u7a0b\u516c\u5171\u8d44\u6599', Icon: ResourcesTabIcon, enabled: true },
+    { key: 'recycle', label: '\u56de\u6536\u7ad9', tip: '\u5220\u9664\u5185\u5bb9\u6062\u590d', Icon: RecycleTabIcon, enabled: true },
+    { key: 'student-progress', label: '\u5b66\u751f\u8fdb\u5ea6', tip: '\u5b66\u4e60\u8fdb\u5ea6\u6982\u89c8', Icon: ProgressTabIcon, enabled: true },
+    { key: 'submission-review', label: '\u63d0\u4ea4\u5ba1\u9605', tip: '\u4f5c\u4e1a\u63d0\u4ea4\u4e0e\u6279\u6539', Icon: ReviewTabIcon, enabled: true },
+    { key: 'statistics', label: '\u7edf\u8ba1', tip: '\u5b66\u60c5\u4e0e\u6570\u636e\u7edf\u8ba1', Icon: StatisticsTabIcon, enabled: true },
   ];
 
   const renderResources = () => (
@@ -627,32 +759,13 @@ function CourseWorkspacePanel({
       <ResourceFileManagement
         username={username}
         courseId={selectedCourse?.id || ''}
-        countLabel={"\u8bfe\u7a0b\u8d44\u6599\u5171"}
+        countLabel={"\u8d44\u6599\u9879\uff1a"}
       />
     </div>
   );
 
   const renderAssignments = () => (
     <div className="teacher-course-pane teacher-course-assignment-pane">
-      <div className="teacher-course-pane-toolbar">
-        <div className="teacher-course-home-actions">
-          <button
-            type="button"
-            className="teacher-lab-create-btn"
-            onClick={() => onCreateExperiment(selectedCourse)}
-          >
-            {'+ \u65b0\u5efa\u4f5c\u4e1a'}
-          </button>
-        </div>
-        <div className="teacher-course-search-box">
-          <input
-            type="text"
-            placeholder={"\u641c\u7d22"}
-            value={assignmentKeyword}
-            onChange={(event) => setAssignmentKeyword(event.target.value)}
-          />
-        </div>
-      </div>
       {(() => {
         const rows = (Array.isArray(selectedCourse?.experiments) ? selectedCourse.experiments : [])
           .filter((item) => {
@@ -663,66 +776,102 @@ function CourseWorkspacePanel({
             const tags = Array.isArray(item?.tags) ? item.tags.join(' ').toLowerCase() : '';
             return title.includes(needle) || desc.includes(needle) || tags.includes(needle);
           });
-
-        if (rows.length === 0) {
-          return <div className="teacher-course-empty-board">{"\u6682\u65e0\u4f5c\u4e1a"}</div>;
-        }
+        const hasKeyword = Boolean(String(assignmentKeyword || '').trim());
 
         return (
-          <div className="teacher-course-assignment-list">
-            <div className="teacher-course-assignment-head">
-              <span className="title">{"\u4f5c\u4e1a\u540d\u79f0"}</span>
-              <span>{"\u72b6\u6001"}</span>
-              <span>{"\u96be\u5ea6"}</span>
-              <span>{"\u521b\u5efa\u65f6\u95f4"}</span>
-              <span>{"\u64cd\u4f5c"}</span>
-            </div>
-            {rows.map((item) => (
-              <div key={item?.id || item?.title} className="teacher-course-assignment-row">
-                <div className="title">
-                  <strong>{item?.title || '\u672a\u547d\u540d\u4f5c\u4e1a'}</strong>
-                  <small>{item?.description || '\u6682\u65e0\u63cf\u8ff0'}</small>
+          <div className="teacher-course-assignment-panel">
+            <div className="teacher-course-assignment-panel-head">
+              <strong>{"\u4f5c\u4e1a\u5217\u8868"}</strong>
+              <div className="teacher-course-assignment-panel-meta">
+                <div className="teacher-course-search-box teacher-course-assignment-search-box">
+                  <input
+                    type="text"
+                    placeholder={"\u641c\u7d22"}
+                    value={assignmentKeyword}
+                    onChange={(event) => setAssignmentKeyword(event.target.value)}
+                  />
                 </div>
-                <span>{item?.published ? '\u5df2\u53d1\u5e03' : '\u8349\u7a3f'}</span>
-                <span>{item?.difficulty || '-'}</span>
-                <span>{formatDateTime(item?.created_at)}</span>
-                <span className="teacher-course-assignment-actions">
-                  <button
-                    type="button"
-                    className="teacher-course-inline-btn"
-                    onClick={() => onEditExperiment(selectedCourse, item)}
-                  >
-                    {'\u7f16\u8f91'}
-                  </button>
-                  <button
-                    type="button"
-                    className="teacher-course-inline-btn danger"
-                    onClick={async () => {
-                      try {
-                        await onDeleteExperiment(selectedCourse, item);
-                      } catch (error) {
-                        console.error('delete experiment failed', error);
-                        alert(getErrorMessage(error, '\u5220\u9664\u4f5c\u4e1a\u5931\u8d25'));
-                      }
-                    }}
-                  >
-                    {'\u5220\u9664'}
-                  </button>
+                <span>
+                  {hasKeyword ? `\u641c\u7d22\u7ed3\u679c ${rows.length} \u9879` : `\u5171 ${rows.length} \u9879`}
                 </span>
               </div>
-            ))}
+            </div>
+
+            {rows.length === 0 ? (
+              <div className="teacher-course-empty-board teacher-course-assignment-empty-board">
+                <strong>{hasKeyword ? '\u672a\u627e\u5230\u5339\u914d\u4f5c\u4e1a' : '\u6682\u65e0\u4f5c\u4e1a'}</strong>
+                <p>
+                  {hasKeyword
+                    ? '\u8bf7\u5c1d\u8bd5\u5176\u4ed6\u5173\u952e\u8bcd\uff0c\u6216\u76f4\u63a5\u65b0\u5efa\u4f5c\u4e1a\u3002'
+                    : '\u53ef\u70b9\u51fb\u300c+ \u65b0\u5efa\u4f5c\u4e1a\u300d\u5feb\u901f\u521b\u5efa\u7b2c\u4e00\u4efd\u4f5c\u4e1a\u3002'}
+                </p>
+                <button
+                  type="button"
+                  className="teacher-lab-create-btn teacher-course-empty-create-btn"
+                  onClick={() => onCreateExperiment(selectedCourse)}
+                >
+                  {'+ \u65b0\u5efa\u4f5c\u4e1a'}
+                </button>
+              </div>
+            ) : (
+              <div className="teacher-course-assignment-list">
+                <div className="teacher-course-assignment-head">
+                  <span className="title">{"\u4f5c\u4e1a\u540d\u79f0"}</span>
+                  <span>{"\u72b6\u6001"}</span>
+                  <span>{"\u96be\u5ea6"}</span>
+                  <span>{"\u521b\u5efa\u65f6\u95f4"}</span>
+                  <span>{"\u64cd\u4f5c"}</span>
+                </div>
+                {rows.map((item) => (
+                  <div key={item?.id || item?.title} className="teacher-course-assignment-row">
+                    <div className="title">
+                      <strong>{item?.title || '\u672a\u547d\u540d\u4f5c\u4e1a'}</strong>
+                      <small>{item?.description || '\u6682\u65e0\u63cf\u8ff0'}</small>
+                    </div>
+                    <span>{item?.published ? '\u5df2\u53d1\u5e03' : '\u8349\u7a3f'}</span>
+                    <span>{item?.difficulty || '-'}</span>
+                    <span>{formatDateTime(item?.created_at)}</span>
+                    <span className="teacher-course-assignment-actions">
+                      <button
+                        type="button"
+                        className="teacher-course-inline-btn"
+                        onClick={() => onEditExperiment(selectedCourse, item)}
+                      >
+                        {'\u7f16\u8f91'}
+                      </button>
+                      <button
+                        type="button"
+                        className="teacher-course-inline-btn danger"
+                        onClick={async () => {
+                          try {
+                            await onDeleteExperiment(selectedCourse, item);
+                          } catch (error) {
+                            console.error('delete experiment failed', error);
+                            alert(getErrorMessage(error, '\u5220\u9664\u4f5c\u4e1a\u5931\u8d25'));
+                          }
+                        }}
+                      >
+                        {'\u5220\u9664'}
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="teacher-course-recycle teacher-course-recycle-inline">
+              <button type="button" className="teacher-course-recycle-link" onClick={openRecyclePage}>{"\u56de\u6536\u7ad9"}</button>
+              <span className="teacher-course-recycle-tip">{"\u5220\u9664\u540e\u7684\u4f5c\u4e1a\u53ef\u5728 30 \u5929\u5185\u6062\u590d"}</span>
+            </div>
           </div>
         );
       })()}
-      <div className="teacher-course-recycle">
-        <button type="button" className="teacher-course-recycle-link" onClick={openRecyclePage}>{"\u56de\u6536\u7ad9"}</button>
-      </div>
     </div>
   );
 
   const renderRecycle = () => (
     <div className="teacher-course-pane teacher-course-assignment-pane">
-      <div className="teacher-course-pane-toolbar">
+      <div className="teacher-course-pane-toolbar teacher-course-page-toolbar">
         <div className="teacher-course-home-actions">
           <button type="button" className="teacher-course-outline-btn" onClick={() => setDetailMenu('assignments')}>
             {"\u8fd4\u56de\u4f5c\u4e1a"}
@@ -789,91 +938,63 @@ function CourseWorkspacePanel({
       </div>
     </div>
   );
-  const manageTabs = [
-    { key: 'class-management', label: '\u73ed\u7ea7\u7ba1\u7406', enabled: true },
-    { key: 'teacher-team', label: '\u6559\u5e08\u56e2\u961f\u7ba1\u7406', enabled: true },
-    { key: 'student-progress', label: '\u5b66\u751f\u8fdb\u5ea6', enabled: true },
-    { key: 'submission-review', label: '\u63d0\u4ea4\u5ba1\u9605', enabled: true },
-  ];
-
   const renderClassManagement = () => (
-    <div className="teacher-course-manage-content">
-      <TeacherUserManagement
-        username={username}
-        userRole={userRole}
-        courseId={selectedCourse?.id || ''}
-        onRosterChanged={refreshCourseSummary}
-      />
-    </div>
-  );
-
-  const renderTeacherTeamManagement = () => (
-    <div className="teacher-course-manage-content">
-      <TeacherTeamManagement username={username} courseId={selectedCourse?.id || ''} />
-    </div>
-  );
-
-  const renderProgressManagement = () => (
-    <div className="teacher-course-manage-content">
-      <div className="teacher-course-manage-toolbar">
-        <button type="button" className="teacher-course-plain-btn" onClick={() => typeof onLoadProgress === 'function' && onLoadProgress()}>
-          {'\u5237\u65b0\u6570\u636e'}
-        </button>
-      </div>
-      <ProgressPanel progress={filteredCourseProgress} loading={loadingProgress} courseMap={courseMap} />
-    </div>
-  );
-
-  const renderReviewManagement = () => (
-    <div className="teacher-course-manage-content">
-      <div className="teacher-course-manage-toolbar">
-        <button type="button" className="teacher-course-plain-btn" onClick={loadCourseSubmissions}>
-          {'\u5237\u65b0\u6570\u636e'}
-        </button>
-      </div>
-      <div className="teacher-lab-section">
-        <TeacherReview
+    <div className="teacher-course-pane teacher-course-manage-pane course-page">
+      <div className="teacher-course-manage-content course-page-panel">
+        <TeacherUserManagement
           username={username}
-          submissions={filteredCourseSubmissions}
-          loading={loadingSubmissions}
-          onGrade={handleGradeSubmission}
+          userRole={userRole}
+          courseId={selectedCourse?.id || ''}
+          onRosterChanged={refreshCourseSummary}
         />
       </div>
     </div>
   );
 
-  const renderManagement = () => (
-    <div className="teacher-course-pane teacher-course-manage-pane">
-      <div className="teacher-course-manage-tabs">
-        {manageTabs.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={activeManageTab === tab.key ? 'active' : ''}
-            disabled={!tab.enabled}
-            onClick={() => {
-              if (!tab.enabled) return;
-              setActiveManageTab(tab.key);
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
+  const renderTeacherTeamManagement = () => (
+    <div className="teacher-course-pane teacher-course-manage-pane course-page">
+      <div className="teacher-course-manage-content course-page-panel">
+        <TeacherTeamManagement username={username} courseId={selectedCourse?.id || ''} />
       </div>
+    </div>
+  );
 
-      {activeManageTab === 'class-management' ? renderClassManagement() : null}
-      {activeManageTab === 'teacher-team' ? renderTeacherTeamManagement() : null}
-      {activeManageTab === 'student-progress' ? renderProgressManagement() : null}
-      {activeManageTab === 'submission-review' ? renderReviewManagement() : null}
-      {activeManageTab !== 'class-management' && activeManageTab !== 'teacher-team' && activeManageTab !== 'student-progress' && activeManageTab !== 'submission-review' ? (
-        <div className="teacher-course-empty-board">{'\u8be5\u529f\u80fd\u6b63\u5728\u5efa\u8bbe\u4e2d'}</div>
-      ) : null}
+  const renderProgressManagement = () => (
+    <div className="teacher-course-pane teacher-course-manage-pane course-page">
+      <div className="teacher-course-manage-content course-page-panel">
+        <ProgressPanel
+          progress={filteredCourseProgress}
+          loading={loadingProgress}
+          courseMap={courseMap}
+          onRefresh={() => typeof onLoadProgress === 'function' && onLoadProgress()}
+        />
+      </div>
+    </div>
+  );
+
+  const renderReviewManagement = () => (
+    <div className="teacher-course-pane teacher-course-manage-pane course-page">
+      <div className="teacher-course-manage-content course-page-panel">
+        <div className="teacher-lab-section">
+          <TeacherReview
+            username={username}
+            submissions={filteredCourseSubmissions}
+            loading={loadingSubmissions}
+            onGrade={handleGradeSubmission}
+            onRefresh={loadCourseSubmissions}
+          />
+        </div>
+      </div>
     </div>
   );
 
   const renderStatistics = () => {
     const monthJupyterVisitCount = Number(statisticsOverview?.jupyter_experiment_visit_count || 0);
     const monthActiveClassCount = Number(statisticsOverview?.active_class_count || 0);
+    const recentLearningHeatmap = normalizeHeatmapPayload(statisticsOverview?.recent_learning_heatmap);
+    const heatmapMaxCount = Number(recentLearningHeatmap?.max_count || 0);
+    const heatmapTotalCount = Number(recentLearningHeatmap?.total_count || 0);
+    const heatmapHasData = heatmapMaxCount > 0 && heatmapTotalCount > 0;
 
     const experimentOptions = [
       { id: 'all', title: '\u5168\u90e8\u4f5c\u4e1a' },
@@ -1060,6 +1181,37 @@ function CourseWorkspacePanel({
 
     return (
       <div className="teacher-course-stat-layout">
+        <div className="teacher-course-pane-toolbar teacher-course-page-toolbar">
+          <div className="teacher-course-home-actions teacher-course-page-toolbar-main">
+            <div className="teacher-course-stat-tabs">
+              <button
+                type="button"
+                className={statisticsTab === 'overview' ? 'active' : ''}
+                onClick={() => setStatisticsTab('overview')}
+              >
+                {'\u57fa\u7840\u6570\u636e'}
+              </button>
+              <button
+                type="button"
+                className={statisticsTab === 'scores' ? 'active' : ''}
+                onClick={() => setStatisticsTab('scores')}
+              >
+                {'\u5b66\u751f\u6210\u7ee9'}
+              </button>
+            </div>
+          </div>
+          <div className="teacher-course-page-toolbar-side">
+            <button
+              type="button"
+              className="teacher-course-plain-btn"
+              onClick={refreshStatisticsData}
+              disabled={loadingSubmissions || loadingStatisticsStudents || loadingStatisticsOverview}
+            >
+              {"\u5237\u65b0"}
+            </button>
+          </div>
+        </div>
+
         <div className="teacher-course-stat-top">
           <div className="teacher-course-stat-main">
             <h2>{selectedCourse?.name || '\u6211\u7684\u8bfe'}</h2>
@@ -1069,23 +1221,6 @@ function CourseWorkspacePanel({
             <div><span>{'\u73ed\u7ea7\u6570'}</span><strong>{selectedCourseClassCount}</strong><em>{'\u4e2a'}</em></div>
             <div><span>{'\u9009\u8bfe\u5b66\u751f\u6570'}</span><strong>{selectedCourseStudentCount}</strong><em>{'\u4eba'}</em></div>
           </div>
-        </div>
-
-        <div className="teacher-course-stat-tabs">
-          <button
-            type="button"
-            className={statisticsTab === 'overview' ? 'active' : ''}
-            onClick={() => setStatisticsTab('overview')}
-          >
-            {'\u57fa\u7840\u6570\u636e'}
-          </button>
-          <button
-            type="button"
-            className={statisticsTab === 'scores' ? 'active' : ''}
-            onClick={() => setStatisticsTab('scores')}
-          >
-            {'\u5b66\u751f\u6210\u7ee9'}
-          </button>
         </div>
 
         <div className="teacher-course-stat-grid">
@@ -1104,7 +1239,60 @@ function CourseWorkspacePanel({
                   <em>{'\u4e2a'}</em>
                 </div>
               </div>
-              <div className="teacher-course-heatmap-placeholder"><strong>{'\u8fd17\u65e5\u5b66\u751f\u5728\u7ebf\u5b66\u4e60\u70ed\u529b\u56fe'}</strong></div>
+              <div className="teacher-course-heatmap-panel">
+                <div className="teacher-course-heatmap-head">
+                  <strong>{'\u8fd17\u65e5\u5b66\u751f\u5728\u7ebf\u5b66\u4e60\u70ed\u529b\u56fe'}</strong>
+                  <span>{`\u603b\u8bbf\u95ee\uff1a${loadingStatisticsOverview ? '--' : heatmapTotalCount}\u6b21`}</span>
+                </div>
+                {loadingStatisticsOverview ? (
+                  <div className="teacher-course-heatmap-empty">{'\u6b63\u5728\u52a0\u8f7d\u70ed\u529b\u56fe\u6570\u636e...'}</div>
+                ) : heatmapHasData ? (
+                  <div className="teacher-course-heatmap-scroll">
+                    <div className="teacher-course-heatmap-grid">
+                      <div className="teacher-course-heatmap-corner">{'\u65e5\u671f'}</div>
+                      {HEATMAP_HOURS.map((hour) => (
+                        <div key={`hour-${hour}`} className="teacher-course-heatmap-hour">
+                          {hour % 2 === 0 ? String(hour).padStart(2, '0') : ''}
+                        </div>
+                      ))}
+                      {recentLearningHeatmap.dates.map((dateKey, dayIndex) => {
+                        const dayLabel = formatHeatmapDate(dateKey);
+                        const row = Array.isArray(recentLearningHeatmap.values?.[dayIndex])
+                          ? recentLearningHeatmap.values[dayIndex]
+                          : HEATMAP_HOURS.map(() => 0);
+                        return (
+                          <React.Fragment key={dateKey}>
+                            <div className="teacher-course-heatmap-day">
+                              <span>{dayLabel.shortDate}</span>
+                              <em>{dayLabel.weekday}</em>
+                            </div>
+                            {HEATMAP_HOURS.map((hour) => {
+                              const count = Number(row[hour] || 0);
+                              const tone = resolveHeatmapTone(count, heatmapMaxCount);
+                              return (
+                                <div
+                                  key={`${dateKey}-${hour}`}
+                                  className={`teacher-course-heatmap-cell tone-${tone}`}
+                                  title={`${dateKey} ${String(hour).padStart(2, '0')}:00 (${count}\u6b21)`}
+                                />
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="teacher-course-heatmap-empty">{'\u8fd17\u5929\u6682\u65e0\u5728\u7ebf\u5b66\u4e60\u8bb0\u5f55'}</div>
+                )}
+                <div className="teacher-course-heatmap-legend">
+                  <span>{'\u4f4e'}</span>
+                  {[0, 1, 2, 3, 4].map((level) => (
+                    <i key={`legend-${level}`} className={`teacher-course-heatmap-cell tone-${level}`} />
+                  ))}
+                  <span>{'\u9ad8'}</span>
+                </div>
+              </div>
             </section>
           ) : (
             <section className="teacher-course-stat-card">
@@ -1248,39 +1436,34 @@ function CourseWorkspacePanel({
   };
 
   const renderContent = () => {
+    if (detailMenu === 'class-management') return renderClassManagement();
+    if (detailMenu === 'teacher-team') return renderTeacherTeamManagement();
+    if (detailMenu === 'student-progress') return renderProgressManagement();
+    if (detailMenu === 'submission-review') return renderReviewManagement();
     if (detailMenu === 'resources') return renderResources();
     if (detailMenu === 'assignments') return renderAssignments();
     if (detailMenu === 'recycle') return renderRecycle();
-    if (detailMenu === 'management') return renderManagement();
     if (detailMenu === 'statistics') return renderStatistics();
-    return renderResources();
+    return renderClassManagement();
   };
 
   return (
     <div className="teacher-course-detail-shell">
-      <aside className="teacher-course-detail-sidebar">
-        <button type="button" className="teacher-course-detail-cover" onClick={handleExitDetail}>
-          <div className="teacher-course-detail-cover-links"><span>{'\u8fd4\u56de\u8bfe\u7a0b\u5e93'}</span></div>
-        </button>
-        <div className="teacher-course-detail-title">{selectedCourse?.name || '\u6211\u7684\u8bfe'}</div>
-
-        <div className="teacher-course-detail-menu">
-          {sideMenus.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={detailMenu === item.key ? 'active' : ''}
-              disabled={!item.enabled}
-              onClick={() => item.enabled && setDetailMenu(item.key)}
-            >
-              <span className="dot" />
-              <span>{item.label}</span>
+      <TeacherLabSidebar
+        title={selectedCourse?.name || ''}
+        items={sideMenus}
+        activeKey={detailMenu}
+        onSelect={setDetailMenu}
+        headerContent={(
+          <div className="teacher-course-sidebar-header">
+            <button type="button" className="teacher-course-detail-cover" onClick={handleExitDetail}>
+              <div className="teacher-course-detail-cover-links"><span>{'\u8fd4\u56de\u8bfe\u7a0b\u5e93'}</span></div>
             </button>
-          ))}
-        </div>
-      </aside>
+          </div>
+        )}
+      />
 
-      <main className="teacher-course-detail-main">
+      <main className="teacher-course-detail-main course-page">
         {renderContent()}
       </main>
     </div>

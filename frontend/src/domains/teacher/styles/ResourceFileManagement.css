@@ -1,114 +1,158 @@
-.resource-file-management {
+.teacher-course-detail-main.course-page .resource-file-management {
     background: #fff;
+    border: 1px solid var(--course-card-border, #dfe8f2);
+    border-radius: var(--course-card-radius, 14px);
+    box-shadow: var(--course-card-shadow, 0 6px 16px rgba(15, 23, 42, 0.05));
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: clamp(420px, calc(100vh - 250px), 760px);
 }
 
-.resource-toolbar {
+.teacher-course-detail-main.course-page .resource-toolbar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.resource-upload-btn {
-    border: none;
-    border-radius: 4px;
-    padding: 8px 14px;
-    background: #2f95da;
-    color: #fff;
-    font-size: 14px;
-    cursor: pointer;
-}
-
-.resource-upload-btn:disabled {
-    cursor: not-allowed;
-    opacity: 0.7;
-}
-
-.resource-file-input {
-    display: none;
-}
-
-.resource-search-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-wrap: wrap;
 }
 
-.resource-search-group input,
-.resource-search-group select {
-    height: 34px;
-    border: 1px solid #d8dee8;
-    border-radius: 4px;
-    padding: 0 10px;
-    font-size: 13px;
-    color: #4d5866;
-    min-width: 120px;
+.teacher-course-detail-main.course-page .resource-file-input {
+    display: none;
 }
 
-.resource-search-btn {
+.teacher-course-detail-main.course-page .resource-upload-btn,
+.teacher-course-detail-main.course-page .resource-search-btn {
+    height: 34px;
+    border-radius: 6px;
+    font-size: 13px;
+    padding: 0 16px;
     border: none;
-    border-radius: 4px;
-    padding: 7px 20px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.teacher-course-detail-main.course-page .resource-upload-btn {
+    background: #3b9cf7;
+    color: #fff;
+}
+
+.teacher-course-detail-main.course-page .resource-upload-btn:hover:not(:disabled) {
+    background: #2f8de7;
+}
+
+.teacher-course-detail-main.course-page .resource-search-btn {
     background: #2f95da;
     color: #fff;
-    cursor: pointer;
 }
 
-.resource-count {
+.teacher-course-detail-main.course-page .resource-search-btn:hover:not(:disabled) {
+    background: #2a88c8;
+}
+
+.teacher-course-detail-main.course-page .resource-upload-btn:disabled,
+.teacher-course-detail-main.course-page .resource-search-btn:disabled {
+    opacity: 0.62;
+    cursor: not-allowed;
+}
+
+.teacher-course-detail-main.course-page .resource-search-group {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex: 1;
+    min-width: min(580px, 100%);
+}
+
+.teacher-course-detail-main.course-page .resource-search-group input,
+.teacher-course-detail-main.course-page .resource-search-group select {
+    height: 34px;
+    border: 1px solid #d3deea;
+    border-radius: 6px;
+    padding: 0 10px;
+    font-size: 13px;
+    color: #496078;
+    background: #fff;
+    min-width: 140px;
+}
+
+.teacher-course-detail-main.course-page .resource-count {
     color: #2f95da;
     font-size: 13px;
+    font-weight: 600;
+    margin-left: auto;
 }
 
-.resource-table-wrap {
+.teacher-course-detail-main.course-page .resource-table-wrap {
+    margin-top: 12px;
+    flex: 1;
+    min-height: 0;
     overflow-x: auto;
+    border: 1px solid #dfe8f2;
+    border-radius: 8px;
+    background: #fff;
+    padding: 0;
 }
 
-.resource-table {
+.teacher-course-detail-main.course-page .resource-table {
     width: 100%;
     border-collapse: collapse;
 }
 
-.resource-table th {
-    background: #e3f0fa;
-    color: #4d5866;
-    font-weight: 600;
+.teacher-course-detail-main.course-page .resource-table th {
+    background: #eaf4fc;
+    color: #476179;
+    font-size: 14px;
     text-align: left;
+    padding: 10px 12px;
+}
+
+.teacher-course-detail-main.course-page .resource-table td {
+    border-top: 1px solid #edf2f7;
+    color: #3f566e;
+    font-size: 14px;
     padding: 12px;
-    border-bottom: 1px solid #d9e7f3;
 }
 
-.resource-table td {
-    padding: 14px 12px;
-    border-bottom: 1px solid #edf1f5;
-    color: #3d4a59;
-}
-
-.resource-empty-row {
+.teacher-course-detail-main.course-page .resource-empty-row {
     text-align: center;
-    color: #8a97a6;
-    padding: 28px 0;
+    color: #8ea1b5;
+    padding: 24px 0;
+    background: #fff;
 }
 
-.resource-link-btn {
+.teacher-course-detail-main.course-page .resource-link-btn {
     border: none;
     background: transparent;
     cursor: pointer;
     font-size: 14px;
     padding: 0;
+    margin-right: 8px;
+    line-height: 1.4;
 }
 
-.resource-link-btn.detail {
+.teacher-course-detail-main.course-page .resource-link-btn.detail {
     color: #2f95da;
     margin-right: 12px;
 }
 
-.resource-link-btn.delete {
-    color: #f29f6b;
+.teacher-course-detail-main.course-page .resource-link-btn.detail:hover {
+    color: #247bb6;
 }
 
-.resource-modal-mask {
+.teacher-course-detail-main.course-page .resource-link-btn.delete {
+    color: #cf3f3f;
+    margin-right: 0;
+}
+
+.teacher-course-detail-main.course-page .resource-link-btn.delete:hover {
+    color: #b73535;
+}
+
+.teacher-course-detail-main.course-page .resource-modal-mask {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.35);
@@ -118,17 +162,17 @@
     z-index: 1200;
 }
 
-.resource-modal {
+.teacher-course-detail-main.course-page .resource-modal {
     width: min(980px, 92vw);
     max-height: 88vh;
     background: #fff;
-    border-radius: 8px;
+    border-radius: 12px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
 
-.resource-modal-header {
+.teacher-course-detail-main.course-page .resource-modal-header {
     padding: 14px 18px;
     border-bottom: 1px solid #edf1f5;
     display: flex;
@@ -136,34 +180,35 @@
     align-items: center;
 }
 
-.resource-modal-header h3 {
+.teacher-course-detail-main.course-page .resource-modal-header h3 {
     margin: 0;
     font-size: 16px;
     color: #2e3a48;
 }
 
-.resource-modal-header button {
-    border: 1px solid #d5dce5;
+.teacher-course-detail-main.course-page .resource-modal-header button {
+    border: 1px solid #d4deea;
     background: #fff;
-    padding: 4px 10px;
-    border-radius: 4px;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
     cursor: pointer;
 }
 
-.resource-modal-body {
+.teacher-course-detail-main.course-page .resource-modal-body {
     padding: 14px 18px;
     overflow: auto;
     min-height: 320px;
 }
 
-.resource-preview-frame {
+.teacher-course-detail-main.course-page .resource-preview-frame {
     width: 100%;
     height: min(70vh, 680px);
     border: 1px solid #d8dee8;
     border-radius: 6px;
 }
 
-.resource-text-preview {
+.teacher-course-detail-main.course-page .resource-text-preview {
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
@@ -176,7 +221,7 @@
     padding: 12px;
 }
 
-.resource-preview-empty {
+.teacher-course-detail-main.course-page .resource-preview-empty {
     min-height: 220px;
     display: flex;
     align-items: center;
@@ -184,29 +229,36 @@
     color: #7b8794;
 }
 
-.resource-modal-footer {
+.teacher-course-detail-main.course-page .resource-modal-footer {
     border-top: 1px solid #edf1f5;
     padding: 12px 18px;
     text-align: right;
 }
 
-.resource-modal-footer a {
+.teacher-course-detail-main.course-page .resource-modal-footer a {
     color: #2f95da;
     text-decoration: none;
 }
 
 @media (max-width: 768px) {
-    .resource-toolbar {
+    .teacher-course-detail-main.course-page .resource-toolbar {
         flex-direction: column;
         align-items: stretch;
     }
 
-    .resource-search-group {
+    .teacher-course-detail-main.course-page .resource-search-group {
         width: 100%;
+        min-width: 0;
+        justify-content: flex-start;
     }
 
-    .resource-search-group input,
-    .resource-search-group select {
+    .teacher-course-detail-main.course-page .resource-count {
+        margin-left: 0;
+    }
+
+    .teacher-course-detail-main.course-page .resource-search-group input,
+    .teacher-course-detail-main.course-page .resource-search-group select,
+    .teacher-course-detail-main.course-page .resource-search-btn {
         flex: 1;
         min-width: 0;
     }
