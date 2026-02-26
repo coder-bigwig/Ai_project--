@@ -114,6 +114,8 @@ services:
       EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
       JUPYTERHUB_API_TOKEN: ${JUPYTERHUB_API_TOKEN:-training-idle-culler-token}
       JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
+      JUPYTERHUB_ACTIVE_SERVER_LIMIT: ${JUPYTERHUB_ACTIVE_SERVER_LIMIT:-214}
+      JUPYTERHUB_MAX_PENDING_SPAWNS: ${JUPYTERHUB_MAX_PENDING_SPAWNS:-214}
       ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-platform_root}
       TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
     networks:
@@ -134,7 +136,7 @@ services:
       dockerfile: Dockerfile
     command: >
       sh -c "python -m jupyterhub_idle_culler
-      --url=http://jupyterhub:8000${JUPYTERHUB_BASE_URL:-/jupyter}/hub/api
+      --url=http://jupyterhub:8000$${JUPYTERHUB_BASE_URL:-/jupyter}/hub/api
       --timeout=1800
       --cull-every=60
       --cull-users=false"

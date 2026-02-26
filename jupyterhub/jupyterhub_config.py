@@ -27,6 +27,16 @@ def _normalize_base_url(value: str) -> str:
 base_url = _normalize_base_url(os.environ.get("JUPYTERHUB_BASE_URL", "/"))
 c.JupyterHub.bind_url = f"http://0.0.0.0:8000{base_url}"
 c.JupyterHub.concurrent_spawn_limit = 15
+c.JupyterHub.active_server_limit = int(os.environ.get("JUPYTERHUB_ACTIVE_SERVER_LIMIT", "214"))
+try:
+    from jupyterhub.app import JupyterHub as JupyterHubApp
+
+    if "max_pending_spawns" in JupyterHubApp.class_trait_names():
+        c.JupyterHub.max_pending_spawns = int(
+            os.environ.get("JUPYTERHUB_MAX_PENDING_SPAWNS", "214")
+        )
+except Exception:
+    pass
 
 # Auth - DummyAuthenticator (any username; optional shared password)
 from jupyterhub.auth import DummyAuthenticator
@@ -368,7 +378,7 @@ c.JupyterHub.default_url = "/hub/home"
 
 # Service token for the training platform backend to manage user servers.
 service_token = os.environ.get("EXPERIMENT_MANAGER_API_TOKEN", "").strip()
-idle_culler_token = os.environ.get("JUPYTERHUB_API_TOKEN", "").strip()
+idle_culler_token = os.environ.get("JUPYTERHUB_API_TOKEN", "training-idle-culler-token").strip()
 services = []
 if service_token:
     services.append(
